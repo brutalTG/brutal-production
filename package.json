@@ -4,16 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node dist/index.js",
-    "build": "tsc"
+    "start": "node --experimental-strip-types src/index.ts",
+    "build": "echo 'skip'"
   },
   "dependencies": {
     "hono": "^4.3.0",
     "@hono/node-server": "^1.11.0",
     "@supabase/supabase-js": "^2.49.1"
-  },
-  "devDependencies": {
-    "typescript": "^5.4.0",
-    "@types/node": "^20.0.0"
   }
 }
