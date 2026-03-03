@@ -1165,18 +1165,81 @@ app.post("/bot/webhook", async (c) => {
     return c.json({ ok: true });
   }
 
-  // Handle /drop command — open current drop
+  // Handle /drop command — smart routing
   if (update.message?.text?.startsWith("/drop")) {
     const chatId = update.message.chat.id;
+    const userId = update.message.from.id;
+    
+    // Check if user exists
+    const node = await resolveNode(userId);
+    
+    // Not registered → onboarding
+    if (!node) {
+      await tgSend("sendMessage", {
+        chat_id: chatId,
+        text: "⚡ Todavía no sos parte de <b>BRUTAL</b>.\n\nRegistrate para jugar Drops, ganar plata y competir por premios.",
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [[
+          { text: "🔥 Entrar", web_app: { url: `https://brutal-production-production-24da.up.railway.app` } }
+        ]] }
+      });
+      return c.json({ ok: true });
+    }
+    
+    // Registered but not active (pending/blocked/etc)
+    if (node.status !== "active") {
+      const msgs = {
+        pending: "⏳ Tu cuenta está en revisión. Te avisamos cuando estés dentro.",
+        blocked: "🚫 Tu cuenta fue suspendida.",
+        rejected: "❌ Tu solicitud no fue aprobada.",
+        incomplete: "📝 Te falta completar el registro.",
+      };
+      await tgSend("sendMessage", {
+        chat_id: chatId,
+        text: msgs[node.status] || "⚠️ Tu cuenta no está activa.",
+        parse_mode: "HTML",
+        ...(node.status === "incomplete" ? { reply_markup: { inline_keyboard: [[
+          { text: "📝 Completar registro", web_app: { url: `https://brutal-production-production-24da.up.railway.app` } }
+        ]] } } : {})
+      });
+      return c.json({ ok: true });
+    }
+    
+    // Active user — check if there's an active drop
+    const { data: activeDrop } = await db()
+      .from("drops").select("drop_id, name").eq("status", "active").limit(1).single();
+    
+    if (!activeDrop) {
+      await tgSend("sendMessage", {
+        chat_id: chatId,
+        text: "😴 No hay ningún Drop activo ahora.\n\nQuedate atento, el bot te avisa cuando salga uno nuevo. Mientras tanto, contestá las preguntas que te mande para sumar tickets 🎟️",
+        parse_mode: "HTML",
+      });
+      return c.json({ ok: true });
+    }
+    
+    // Check if already completed this drop
+    const { data: done } = await db()
+      .from("sessions").select("session_id")
+      .eq("node_id", node.node_id).eq("drop_id", activeDrop.drop_id).eq("status", "completed").single();
+    
+    if (done) {
+      await tgSend("sendMessage", {
+        chat_id: chatId,
+        text: `✅ Ya jugaste <b>${activeDrop.name}</b>.\n\nQuedate atento que el bot te manda preguntas sueltas todo el tiempo y sumás tickets 🎟️ para el sorteo.`,
+        parse_mode: "HTML",
+      });
+      return c.json({ ok: true });
+    }
+    
+    // Active user, active drop, not completed → play!
     await tgSend("sendMessage", {
       chat_id: chatId,
-      text: "🎯 Tocá para jugar el Drop activo:",
+      text: `🎯 <b>${activeDrop.name}</b> está activo.\n\nResponde rápido, ganá monedas y tickets.`,
       parse_mode: "HTML",
-      reply_markup: {
-        inline_keyboard: [[
-          { text: "▶️ Jugar Drop", web_app: { url: `https://brutal-production-production-24da.up.railway.app` } }
-        ]]
-      }
+      reply_markup: { inline_keyboard: [[
+        { text: "▶️ Jugar", web_app: { url: `https://brutal-production-production-24da.up.railway.app` } }
+      ]] }
     });
     return c.json({ ok: true });
   }
