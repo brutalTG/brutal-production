@@ -7,7 +7,7 @@ import { useState, useEffect } from "react";
 import { Users, Loader2, X, AlertTriangle } from "lucide-react";
 import { projectId, publicAnonKey } from "/utils/supabase/info";
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-c68eb08c`;
+const API_BASE = "";
 
 interface SegmentOption {
   segmentId: string;
