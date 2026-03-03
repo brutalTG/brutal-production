@@ -1131,6 +1131,163 @@ app.post("/panel-auth", async (c) => {
 // BOT
 // ============================================================================
 
+// ============================================================================
+// BOT WEBHOOK — receives Telegram updates
+// ============================================================================
+
+app.post("/bot/webhook", async (c) => {
+  const update = await c.req.json();
+  const botT = botToken();
+  
+  async function tgSend(method: string, body: any) {
+    await fetch(`https://api.telegram.org/bot${botT}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  // Handle /start command
+  if (update.message?.text?.startsWith("/start")) {
+    const chatId = update.message.chat.id;
+    const firstName = update.message.from.first_name || "Node";
+    
+    await tgSend("sendMessage", {
+      chat_id: chatId,
+      text: `⚡ <b>BRUTAL</b>\n\nBienvenido ${firstName}.\n\nEste es tu canal directo con The Insight Club. Acá vas a recibir Drops, preguntas rápidas y recompensas.\n\nTocá el botón para abrir la app.`,
+      parse_mode: "HTML",
+      reply_markup: {
+        inline_keyboard: [[
+          { text: "🔥 Abrir BRUTAL", web_app: { url: `https://brutal-production-production-24da.up.railway.app` } }
+        ]]
+      }
+    });
+    return c.json({ ok: true });
+  }
+
+  // Handle /drop command — open current drop
+  if (update.message?.text?.startsWith("/drop")) {
+    const chatId = update.message.chat.id;
+    await tgSend("sendMessage", {
+      chat_id: chatId,
+      text: "🎯 Tocá para jugar el Drop activo:",
+      parse_mode: "HTML",
+      reply_markup: {
+        inline_keyboard: [[
+          { text: "▶️ Jugar Drop", web_app: { url: `https://brutal-production-production-24da.up.railway.app` } }
+        ]]
+      }
+    });
+    return c.json({ ok: true });
+  }
+
+  // Handle /help command
+  if (update.message?.text?.startsWith("/help")) {
+    const chatId = update.message.chat.id;
+    await tgSend("sendMessage", {
+      chat_id: chatId,
+      text: `⚡ <b>BRUTAL — Comandos</b>\n\n/start — Iniciar\n/drop — Jugar el Drop activo\n/help — Ver ayuda\n\nLos Drops se publican semanalmente. Respondé rápido, ganá monedas y tickets.`,
+      parse_mode: "HTML",
+    });
+    return c.json({ ok: true });
+  }
+
+  // Handle callback queries (inline keyboard responses from bot questions)
+  if (update.callback_query) {
+    const cb = update.callback_query;
+    const chatId = cb.message.chat.id;
+    const userId = cb.from.id;
+    const data = cb.callback_data; // format: "bq:<bot_question_id>:<choice_index>"
+
+    // Acknowledge the callback immediately
+    await tgSend("answerCallbackQuery", { callback_query_id: cb.id });
+
+    if (data?.startsWith("bq:")) {
+      const parts = data.split(":");
+      const botQuestionId = parts[1];
+      const choiceIndex = parseInt(parts[2]);
+
+      // Resolve node
+      const node = await resolveNode(userId);
+      if (!node) {
+        await tgSend("sendMessage", {
+          chat_id: chatId,
+          text: "⚠️ No estás registrado. Abrí la app primero.",
+          reply_markup: {
+            inline_keyboard: [[
+              { text: "🔥 Abrir BRUTAL", web_app: { url: `https://brutal-production-production-24da.up.railway.app` } }
+            ]]
+          }
+        });
+        return c.json({ ok: true });
+      }
+
+      // Get the bot question + linked question
+      const { data: bq } = await db()
+        .from("bot_questions").select("*, questions(*)").eq("id", botQuestionId).single();
+      
+      if (bq?.questions) {
+        const q = bq.questions;
+        const anonymous_id = await anonId(node.node_id);
+        const options = q.config?.options || [];
+        const chosenOption = options[choiceIndex] || `option_${choiceIndex}`;
+
+        // Save response
+        await db().from("responses").insert({
+          node_id: node.node_id,
+          anonymous_id,
+          question_id: q.question_id,
+          drop_id: bq.linked_drop_id || null,
+          question_type: q.type,
+          choice: typeof chosenOption === "string" ? chosenOption : chosenOption.text || chosenOption.label,
+          choice_index: choiceIndex,
+          raw_response: { callback_data: data, bot_question_id: botQuestionId },
+          source: "bot",
+          reward_type: q.reward_cash > 0 ? "cash" : q.reward_tickets > 0 ? "tickets" : null,
+          reward_value: q.reward_cash || q.reward_tickets || 0,
+          reward_granted: true,
+        });
+
+        // Credit rewards
+        const rewardCash = q.reward_cash || 0;
+        const rewardTickets = q.reward_tickets || 0;
+        if (rewardCash > 0) {
+          const { data: p } = await db().from("profiles").select("cash_balance, cash_lifetime").eq("node_id", node.node_id).single();
+          if (p) await db().from("profiles").update({
+            cash_balance: (p.cash_balance || 0) + rewardCash,
+            cash_lifetime: (p.cash_lifetime || 0) + rewardCash,
+          }).eq("node_id", node.node_id);
+        } else if (rewardTickets > 0) {
+          const { data: p } = await db().from("profiles").select("tickets_current, tickets_lifetime").eq("node_id", node.node_id).single();
+          if (p) await db().from("profiles").update({
+            tickets_current: (p.tickets_current || 0) + rewardTickets,
+            tickets_lifetime: (p.tickets_lifetime || 0) + rewardTickets,
+          }).eq("node_id", node.node_id);
+        }
+
+        // Update bot_questions_answered
+        const { data: prof } = await db().from("profiles").select("bot_questions_answered").eq("node_id", node.node_id).single();
+        if (prof) await db().from("profiles").update({
+          bot_questions_answered: (prof.bot_questions_answered || 0) + 1,
+        }).eq("node_id", node.node_id);
+
+        // Edit original message to show result
+        const rewardText = rewardCash > 0 ? `+$${rewardCash} 💰` : rewardTickets > 0 ? `+${rewardTickets} 🎟️` : "✅";
+        await tgSend("editMessageText", {
+          chat_id: chatId,
+          message_id: cb.message.message_id,
+          text: `${cb.message.text}\n\n<b>Tu respuesta:</b> ${typeof chosenOption === "string" ? chosenOption : chosenOption.text || chosenOption.label}\n${rewardText}`,
+          parse_mode: "HTML",
+        });
+      }
+    }
+
+    return c.json({ ok: true });
+  }
+
+  // Default: ignore other messages
+  return c.json({ ok: true });
+});
 app.post("/bot/send-message", requirePanel, async (c) => {
   const { chat_id, text, parse_mode } = await c.req.json();
   if (!chat_id || !text) return c.json({ error: "chat_id and text required" }, 400);
