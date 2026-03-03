@@ -23,7 +23,7 @@ import type { CompassRafaga, CompassPair, CompassAxis } from "../onboarding/comp
 import { AXIS_POLES } from "../onboarding/compass-types";
 import { DEFAULT_RAFAGAS, ARCHETYPES } from "../onboarding/compass-data";
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-c68eb08c`;
+const API_BASE = "";
 const headers = () => ({
   "Content-Type": "application/json",
   Authorization: `Bearer ${publicAnonKey}`,
