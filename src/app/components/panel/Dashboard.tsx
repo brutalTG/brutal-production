@@ -13,7 +13,7 @@ import {
   TrendingUp,
   Loader2,
 } from "lucide-react";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+// Auth: panel token from sessionStorage (set during login)
 import { getQuestions, getDrops } from "./panel-store";
 
 const API_BASE = "";
@@ -46,7 +46,7 @@ export function Dashboard() {
     }
 
     fetch(`${API_BASE}/sessions/${targetDrop.dropId}/stats`, {
-      headers: { Authorization: `Bearer ${publicAnonKey}` },
+      headers: { "X-Panel-Token": sessionStorage.getItem("brutal_panel_token") || "" },
     })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);

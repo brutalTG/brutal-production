@@ -18,7 +18,7 @@ import {
   AlertCircle,
   Eye,
 } from "lucide-react";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+// Auth: panel token from sessionStorage (set during login)
 import type { CompassRafaga, CompassPair, CompassAxis } from "../onboarding/compass-types";
 import { AXIS_POLES } from "../onboarding/compass-types";
 import { DEFAULT_RAFAGAS, ARCHETYPES } from "../onboarding/compass-data";
@@ -26,7 +26,7 @@ import { DEFAULT_RAFAGAS, ARCHETYPES } from "../onboarding/compass-data";
 const API_BASE = "";
 const headers = () => ({
   "Content-Type": "application/json",
-  Authorization: `Bearer ${publicAnonKey}`,
+  "X-Panel-Token": sessionStorage.getItem("brutal_panel_token") || "",
 });
 
 const AXIS_OPTIONS: { value: CompassAxis; label: string }[] = [

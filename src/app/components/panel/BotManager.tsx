@@ -25,14 +25,14 @@ import {
   Check,
   Copy,
 } from "lucide-react";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+// Auth: panel token from sessionStorage (set during login)
 
 const API_BASE = "";
 const CRON_POLL_URL = `${API_BASE}/bot-poll`;
-const CRON_AUTH_HEADER = `Bearer ${publicAnonKey}`;
+const CRON_AUTH_HEADER = sessionStorage.getItem("brutal_panel_token") || "";
 const headers = () => ({
   "Content-Type": "application/json",
-  Authorization: `Bearer ${publicAnonKey}`,
+  "X-Panel-Token": sessionStorage.getItem("brutal_panel_token") || "",
 });
 
 // ── Types ────────────────────────────────────────────────────
@@ -1361,7 +1361,7 @@ function CronUrlBox() {
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await fetch(CRON_POLL_URL, { method: "POST", headers: { "Content-Type": "application/json", Authorization: CRON_AUTH_HEADER } });
+      const res = await fetch(CRON_POLL_URL, { method: "POST", headers: { "Content-Type": "application/json", "X-Panel-Token": CRON_AUTH_HEADER } });
       const data = await res.json();
       setTestResult(data.ok ? `OK — ${data.processed} procesados de ${data.total} updates` : `Error: ${data.error || "respuesta inesperada"}`);
     } catch (err) {

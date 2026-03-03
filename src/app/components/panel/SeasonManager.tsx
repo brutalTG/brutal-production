@@ -24,7 +24,7 @@ import {
   Image,
   TicketX,
 } from "lucide-react";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+// Auth: panel token from sessionStorage (set during login)
 import type {
   Season,
   SeasonPrize,
@@ -42,7 +42,7 @@ import {
 const API_BASE = "";
 const headers = () => ({
   "Content-Type": "application/json",
-  Authorization: `Bearer ${publicAnonKey}`,
+  "X-Panel-Token": sessionStorage.getItem("brutal_panel_token") || "",
 });
 
 const formInput: React.CSSProperties = {

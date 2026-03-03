@@ -29,7 +29,7 @@ import {
   getQuestionById,
 } from "./panel-store";
 
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+// Auth: panel token from sessionStorage (set during login)
 
 // --- Shared input styles ---
 const inputStyle: React.CSSProperties = {
@@ -558,7 +558,7 @@ function MetaFields({
   useEffect(() => {
     const API_BASE = "";
     fetch(`${API_BASE}/admin/segments`, {
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${publicAnonKey}` },
+      headers: { "Content-Type": "application/json", "X-Panel-Token": sessionStorage.getItem("brutal_panel_token") || "" },
     })
       .then((r) => r.ok ? r.json() : { segments: [] })
       .then((d) => setSegments(d.segments || []))

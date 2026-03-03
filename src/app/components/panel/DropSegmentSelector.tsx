@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from "react";
 import { Users, Loader2, X, AlertTriangle } from "lucide-react";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+// Auth: panel token from sessionStorage (set during login)
 
 const API_BASE = "";
 
@@ -28,7 +28,7 @@ export function DropSegmentSelector({ selectedIds, onChange }: DropSegmentSelect
     fetch(`${API_BASE}/admin/segments`, {
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${publicAnonKey}`,
+        "X-Panel-Token": sessionStorage.getItem("brutal_panel_token") || "",
       },
     })
       .then((r) => r.json())

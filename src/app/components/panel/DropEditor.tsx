@@ -43,7 +43,7 @@ import { QuestionLibrary } from "./QuestionLibrary";
 import { QuestionBuilder } from "./QuestionBuilder";
 import { publishActiveDrop, publishPreviewDrop } from "../drop-api";
 import { SplashEditor } from "./SplashEditor";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+// Unused import removed — API calls handled by panel-sync
 import { DropSegmentSelector } from "./DropSegmentSelector";
 
 const DRAG_TYPE = "DROP_QUESTION";
