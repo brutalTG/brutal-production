@@ -40,7 +40,7 @@ import { getReferralLink, detectReferral } from "./referral";
 import { uploadSession, waitForUpload, claimRewards } from "./session-uploader";
 import { CURRENT_DROP } from "./sample-drop";
 import { fetchActiveDrop, fetchPreviewDrop } from "./drop-api";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+// API calls go to same-origin Hono server
 
 // ============================================================
 // Node Status Gate — checks if Telegram user is an active node
@@ -73,11 +73,11 @@ function useNodeGate() {
       return;
     }
 
-    const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-c68eb08c`;
+    const API_BASE = "";  // Same origin
 
     // Step 1: Check node status
     fetch(`${API_BASE}/node-status?telegramUserId=${telegramUserId}`, {
-      headers: { Authorization: `Bearer ${publicAnonKey}` },
+      headers: {},  // Public endpoints, no auth needed for gate check
     })
       .then((r) => r.json())
       .then((data) => {
@@ -91,7 +91,7 @@ function useNodeGate() {
 
         // Step 2: Check segment access for active nodes
         fetch(`${API_BASE}/check-drop-access?telegramUserId=${telegramUserId}`, {
-          headers: { Authorization: `Bearer ${publicAnonKey}` },
+          headers: {},  // Public endpoints, no auth needed for gate check
         })
           .then((r) => r.json())
           .then((access) => {

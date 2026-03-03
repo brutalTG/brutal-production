@@ -2,13 +2,13 @@
 // REWARD API — Frontend helpers for profile, leaderboard, season
 // ============================================================
 
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+// API calls go to same-origin Hono server
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-c68eb08c`;
+const API_BASE = "";  // Same origin — Hono serves API + frontend from Railway
 
 const headers = () => ({
   "Content-Type": "application/json",
-  Authorization: `Bearer ${publicAnonKey}`,
+  // Auth: added per-call as needed (panel token or TG initData)
 });
 
 // ── Types ────────────────────────────────────────────────────

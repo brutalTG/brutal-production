@@ -6,10 +6,10 @@
 // Fire-and-forget: errors are logged but never block the UI.
 // ============================================================
 
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+// API calls go to same-origin Hono server
 import type { DropSession } from "./signal-store";
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-c68eb08c`;
+const API_BASE = "";  // Same origin — Hono serves API + frontend from Railway
 
 /**
  * Generate a random anonymous session ID.
@@ -92,7 +92,7 @@ export async function uploadSession(session: DropSession): Promise<boolean> {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${publicAnonKey}`,
+          // Auth: Telegram initData will be added when available
         },
         body,
         keepalive: true, // Critical: survives page unload / mini app close
@@ -148,7 +148,7 @@ export async function claimRewards(params: {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${publicAnonKey}`,
+      // Auth: Telegram initData will be added when available
     },
     body,
   });
