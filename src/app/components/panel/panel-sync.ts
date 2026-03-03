@@ -8,7 +8,7 @@
 import { projectId, publicAnonKey } from "/utils/supabase/info";
 import type { PanelQuestion, PanelDrop } from "./panel-store";
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-c68eb08c`;
+const API_BASE = window.location.origin;
 const QUESTIONS_KEY = "brutal_panel_questions";
 const DROPS_KEY = "brutal_panel_drops";
 const AUTH_KEY = "brutal_panel_auth";
