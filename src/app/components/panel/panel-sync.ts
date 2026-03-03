@@ -64,10 +64,10 @@ body: JSON.stringify({ password }),
 ```
 if (res.ok) {
   const data = await res.json().catch(() => ({}));
-  // Guardar token si el server lo devuelve
-  if (data.token) {
-    sessionStorage.setItem(TOKEN_KEY, data.token);
-  }
+  // Guardar token: si el server devuelve token, usarlo.
+  // Si no, guardar la password directamente (server valida X-Panel-Token === PANEL_PASSWORD)
+  const tokenToSave = data.token || password;
+  sessionStorage.setItem(TOKEN_KEY, tokenToSave);
   setAuthenticated(true);
   return { ok: true };
 }
@@ -126,12 +126,37 @@ return { ok: false, error: `Error de red: ${err}` };
 
 export async function loadPanelDataFromServer(): Promise<boolean> {
 try {
-const [questionsRes, dropsRes] = await Promise.all([
-request<PanelQuestion[]>(“GET”, “/admin/questions”),
-request<PanelDrop[]>(“GET”, “/admin/drops”),
-]);
+const token = getToken();
 
 ```
+// ── TEMP DEBUG ──
+alert(
+  `DEBUG — loadPanelDataFromServer\n\n` +
+  `API_BASE: ${API_BASE}\n` +
+  `Token: ${token ? `"${token.slice(0, 12)}..."` : "NULL ⚠️"}\n` +
+  `AUTH_KEY en sessionStorage: ${sessionStorage.getItem(AUTH_KEY) ?? "null"}`
+);
+// ── END DEBUG ──
+
+const [questionsRes, dropsRes] = await Promise.all([
+  request<PanelQuestion[]>("GET", "/admin/questions"),
+  request<PanelDrop[]>("GET", "/admin/drops"),
+]);
+
+// ── TEMP DEBUG ──
+alert(
+  `DEBUG — Respuesta del server\n\n` +
+  `Questions: ${questionsRes.ok
+    ? `✅ ${questionsRes.data?.length ?? 0} items`
+    : `❌ ${questionsRes.error}`
+  }\n` +
+  `Drops: ${dropsRes.ok
+    ? `✅ ${dropsRes.data?.length ?? 0} items`
+    : `❌ ${dropsRes.error}`
+  }`
+);
+// ── END DEBUG ──
+
 if (!questionsRes.ok || !dropsRes.ok) {
   console.error("[Panel] Failed to load from server:", {
     questions: questionsRes.error,
@@ -152,22 +177,19 @@ return true;
 ```
 
 } catch (err) {
+// ── TEMP DEBUG ──
+alert(`DEBUG — ERROR en loadPanelDataFromServer:\n\n${err}`);
+// ── END DEBUG ──
 console.error(”[Panel] Error loading panel data:”, err);
 return false;
 }
 }
 
 // ── scheduleSyncToServer — no-op (legacy) ───────────────────
-// panel-store.ts llama a esto en cada write de localStorage.
-// El bulk sync (/panel-data PUT) ya no existe en el server Hono.
-// Las writes al server se hacen por operación individual usando
-// las funciones syncQuestion* y syncDrop* de abajo.
 
 let _syncTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function scheduleSyncToServer() {
-// No-op intencional. Ver comentario arriba.
-// Kept para compatibilidad con panel-store.ts sin modificarlo.
 if (_syncTimer) clearTimeout(_syncTimer);
 _syncTimer = null;
 }
