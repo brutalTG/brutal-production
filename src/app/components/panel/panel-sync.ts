@@ -49,7 +49,16 @@ return h;
 // ── Auth ─────────────────────────────────────────────────────
 
 export function isAuthenticated(): boolean {
-return sessionStorage.getItem(AUTH_KEY) === “1”;
+// Require BOTH the auth flag AND a token — prevents stale sessions
+// from Figma Make era where AUTH_KEY existed but TOKEN_KEY didn’t
+const hasAuth = sessionStorage.getItem(AUTH_KEY) === “1”;
+const hasToken = !!sessionStorage.getItem(TOKEN_KEY);
+if (hasAuth && !hasToken) {
+// Stale session — force re-login
+sessionStorage.removeItem(AUTH_KEY);
+return false;
+}
+return hasAuth && hasToken;
 }
 
 export function setAuthenticated(val: boolean) {
