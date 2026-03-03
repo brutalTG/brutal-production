@@ -590,6 +590,30 @@ app.post("/apply", async (c) => {
         chosen_brand: ch.chosen_brand, latency_ms: ch.latency_ms }))
     );
   }
+  // Send welcome message via bot after registration
+  if (telegram_user_id && botToken()) {
+    const { count } = await db()
+      .from("nodes").select("*", { count: "exact", head: true })
+      .in("status", ["pending", "active"]);
+    const position = count || 1;
+    
+    try {
+      await fetch(`https://api.telegram.org/bot${botToken()}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: telegram_user_id,
+          text: `✅ <b>Registro completo</b>\n\n` +
+            `Tu posición en la fila: <b>#${position}</b>\n\n` +
+            `Activá las notificaciones 🔔 que te vamos a avisar por acá cuando estés dentro y tengas un Drop activo para jugar.\n\n` +
+            `Código de referido: <code>${newNode.referral_code}</code>\nCompartilo con amigos para subir en la fila.`,
+          parse_mode: "HTML",
+        }),
+      });
+    } catch (e) {
+      console.error("[BOT] Post-registration message failed:", e);
+    }
+  }
   return c.json({ ok: true, applicationId: newNode.node_id, referralCode: newNode.referral_code }, 201);
 });
 
