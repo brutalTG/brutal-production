@@ -831,6 +831,43 @@ app.put("/claims/:id", requirePanel, async (c) => {
 // ADMIN — NODES
 // ============================================================================
 
+// Legacy alias — NodosManager calls /admin/applications
+app.get("/admin/applications", requirePanel, async (c) => {
+  const limit = parseInt(c.req.query("limit") || "100");
+  const offset = parseInt(c.req.query("offset") || "0");
+  const status = c.req.query("status");
+  const search = c.req.query("search");
+
+  let q = db().from("nodes").select("*, profiles(*)", { count: "exact" })
+    .order("created_at", { ascending: false }).range(offset, offset + limit - 1);
+  if (status) q = q.eq("status", status);
+  if (search) q = q.or(`nickname.ilike.%${search}%,phone.ilike.%${search}%,referral_code.ilike.%${search}%`);
+
+  const { data, count, error } = await q;
+  if (error) return c.json({ error: error.message }, 500);
+
+  const applications = (data || []).map((n) => {
+    const p = Array.isArray(n.profiles) ? n.profiles[0] : n.profiles || {};
+    return {
+      applicationId: n.node_id,
+      telegramUserId: 0,
+      nickname: n.nickname,
+      phone: n.phone,
+      age: n.age,
+      gender: n.gender,
+      location: n.location_province,
+      status: n.status,
+      referralCode: n.referral_code,
+      compassArchetype: n.compass_archetype,
+      createdAt: n.created_at,
+      totalCoins: p.cash_balance || 0,
+      seasonTickets: p.tickets_current || 0,
+      dropsCompleted: p.drops_completed || 0,
+    };
+  });
+
+  return c.json(applications);
+});
 app.get("/admin/users", requirePanel, async (c) => {
   const status = c.req.query("status");
   const search = c.req.query("search");
