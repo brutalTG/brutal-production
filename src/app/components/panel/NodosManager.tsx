@@ -9,12 +9,10 @@ import {
   Tag, Plus, RefreshCw, AlertTriangle, Copy, Download,
   UserCheck, UserX, Clock, ChevronRight, Layers,
 } from "lucide-react";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
-
 const API_BASE = "";
 const headers = () => ({
   "Content-Type": "application/json",
-  Authorization: `Bearer ${publicAnonKey}`,
+  "X-Panel-Token": sessionStorage.getItem("brutal_panel_token") || "",
 });
 
 // ── Types ────────────────────────────────────────────────────
