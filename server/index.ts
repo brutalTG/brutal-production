@@ -1191,7 +1191,63 @@ app.post("/bot/webhook", async (c) => {
     });
     return c.json({ ok: true });
   }
+// Handle /leaderboard command
+  if (update.message?.text?.startsWith("/leaderboard")) {
+    const chatId = update.message.chat.id;
+    const { data } = await db().from("profiles")
+      .select("tickets_current, nodes(nickname)")
+      .order("tickets_current", { ascending: false }).limit(10);
+    
+    let text = "🏆 <b>LEADERBOARD</b>\n\n";
+    if (!data?.length) {
+      text += "Todavía no hay jugadores.";
+    } else {
+      data.forEach((p, i) => {
+        const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}.`;
+        const name = p.nodes?.nickname || "Anónimo";
+        text += `${medal} <b>${name}</b> — ${p.tickets_current || 0} 🎟️\n`;
+      });
+    }
+    await tgSend("sendMessage", { chat_id: chatId, text, parse_mode: "HTML" });
+    return c.json({ ok: true });
+  }
 
+  // Handle /perfil command
+  if (update.message?.text?.startsWith("/perfil")) {
+    const chatId = update.message.chat.id;
+    const userId = update.message.from.id;
+    const node = await resolveNode(userId);
+    if (!node) {
+      await tgSend("sendMessage", {
+        chat_id: chatId,
+        text: "⚠️ No estás registrado. Abrí la app primero.",
+        reply_markup: { inline_keyboard: [[
+          { text: "🔥 Abrir BRUTAL", web_app: { url: `https://brutal-production-production-24da.up.railway.app` } }
+        ]] }
+      });
+      return c.json({ ok: true });
+    }
+    const { data: profile } = await db().from("profiles")
+      .select("cash_balance, tickets_current, tickets_lifetime, drops_completed, bot_questions_answered")
+      .eq("node_id", node.node_id).single();
+    const { data: nd } = await db().from("nodes")
+      .select("nickname, compass_archetype, referral_code")
+      .eq("node_id", node.node_id).single();
+    
+    const p = profile || {};
+    const text = `⚡ <b>Tu Perfil</b>\n\n` +
+      `👤 <b>${nd?.nickname || "Node"}</b>\n` +
+      `${nd?.compass_archetype ? `🧭 ${nd.compass_archetype}\n` : ""}` +
+      `\n💰 Balance: <b>$${p.cash_balance || 0}</b>\n` +
+      `🎟️ Tickets (season): <b>${p.tickets_current || 0}</b>\n` +
+      `🎟️ Tickets (lifetime): <b>${p.tickets_lifetime || 0}</b>\n` +
+      `📦 Drops completados: <b>${p.drops_completed || 0}</b>\n` +
+      `🤖 Bot preguntas: <b>${p.bot_questions_answered || 0}</b>\n` +
+      `\n🔗 Tu código: <code>${nd?.referral_code || "—"}</code>`;
+    
+    await tgSend("sendMessage", { chat_id: chatId, text, parse_mode: "HTML" });
+    return c.json({ ok: true });
+  }
   // Handle callback queries (inline keyboard responses from bot questions)
   if (update.callback_query) {
     const cb = update.callback_query;
