@@ -13,7 +13,7 @@ import type { OnboardingStep, MultiplierHandlesStep, CompassRafagaStep } from ".
 import type { CompassRafaga, PairAnswer } from "./compass-types";
 import { DEFAULT_RAFAGAS } from "./compass-data";
 import { computeCompassVector, findArchetype } from "./compass-engine";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+// API calls go to same-origin Hono server
 import { RafagaEmojiQuestion } from "../rafaga-emoji-question";
 import type { RafagaEmojiItem } from "../rafaga-emoji-question";
 import { CompassReveal } from "./CompassReveal";
@@ -102,11 +102,11 @@ export default function OnboardingApp() {
 
   // Fetch compass config from panel builder
   useEffect(() => {
-    const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-c68eb08c`;
+    const API_BASE = "";  // Same origin
     fetch(`${API_BASE}/compass-config`, {
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${publicAnonKey}`,
+        // Public endpoint, no auth needed
       },
     })
       .then((r) => r.json())
