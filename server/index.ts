@@ -866,7 +866,7 @@ app.get("/admin/applications", requirePanel, async (c) => {
     };
   });
 
-  return c.json(applications);
+  return c.json({ applications });
 });
 app.get("/admin/users", requirePanel, async (c) => {
   const status = c.req.query("status");
