@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { projectId, publicAnonKey } from "/utils/supabase/info";
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-c68eb08c`;
+const API_BASE = "";
 const headers = () => ({
   "Content-Type": "application/json",
   Authorization: `Bearer ${publicAnonKey}`,
