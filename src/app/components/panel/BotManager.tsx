@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { projectId, publicAnonKey } from "/utils/supabase/info";
 
-const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-c68eb08c`;
+const API_BASE = "";
 const CRON_POLL_URL = `${API_BASE}/bot-poll`;
 const CRON_AUTH_HEADER = `Bearer ${publicAnonKey}`;
 const headers = () => ({
