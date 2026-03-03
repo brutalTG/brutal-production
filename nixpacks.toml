@@ -9,3 +9,4 @@ cmds = ["npm run build"]
 
 [start]
 cmd = "node --experimental-strip-types server/index.ts"
+# force redeploy
