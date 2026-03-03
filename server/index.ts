@@ -563,7 +563,7 @@ app.post("/apply", async (c) => {
     phone_brand: phone_brand || null, compass_vector: compass_vector || null,
     compass_archetype: compass_archetype || null, brand_vector: brand_vector || null,
     handles: handles || null, referred_by: referredBy, status,
-    onboarding_step: isComplete ? "complete" : "phone",
+    onboarding_step: isComplete ? 99 : 1,
   }).select("node_id, referral_code, status").single();
   if (nodeErr) return c.json({ ok: false, error: nodeErr.message }, 500);
   await db().from("profiles").insert({
