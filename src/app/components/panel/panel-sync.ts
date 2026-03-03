@@ -1,115 +1,320 @@
 // ============================================================
-// PANEL SYNC — Bidirectional sync between localStorage ↔ Supabase KV
+// PANEL SYNC — API client for BRUTAL admin panel
 // ============================================================
-// On load: fetch from server → hydrate localStorage
-// On save: update localStorage → debounced push to server
+// Conectado al server Hono en Railway (mismo dominio).
+// Reemplaza la integración con Supabase Edge Functions (Figma Make).
+//
+// Arquitectura:
+//   - Auth: POST /panel-auth → guarda token en sessionStorage
+//   - Carga inicial: GET /admin/questions + GET /admin/drops → hidrata localStorage
+//   - Writes: por operación individual (create/update/delete)
+//   - scheduleSyncToServer(): no-op (legacy, llamado desde panel-store)
+//     El bulk sync fue reemplazado por writes por operación.
 // ============================================================
 
-import { projectId, publicAnonKey } from "/utils/supabase/info";
-import type { PanelQuestion, PanelDrop } from "./panel-store";
+import type { PanelQuestion, PanelDrop } from “./panel-store”;
 
 const API_BASE = window.location.origin;
-const QUESTIONS_KEY = "brutal_panel_questions";
-const DROPS_KEY = "brutal_panel_drops";
-const AUTH_KEY = "brutal_panel_auth";
+const QUESTIONS_KEY = “brutal_panel_questions”;
+const DROPS_KEY = “brutal_panel_drops”;
+const AUTH_KEY = “brutal_panel_auth”;
+const TOKEN_KEY = “brutal_panel_token”;
 
-const headers = () => ({
-  "Content-Type": "application/json",
-  Authorization: `Bearer ${publicAnonKey}`,
-});
+// ── Headers ──────────────────────────────────────────────────
+
+function getToken(): string | null {
+return sessionStorage.getItem(TOKEN_KEY);
+}
+
+function headers(): Record<string, string> {
+const token = getToken();
+return {
+“Content-Type”: “application/json”,
+…(token ? { “X-Panel-Token”: token } : {}),
+};
+}
 
 // ── Auth ─────────────────────────────────────────────────────
 
 export function isAuthenticated(): boolean {
-  return sessionStorage.getItem(AUTH_KEY) === "1";
+return sessionStorage.getItem(AUTH_KEY) === “1”;
 }
 
 export function setAuthenticated(val: boolean) {
-  if (val) {
-    sessionStorage.setItem(AUTH_KEY, "1");
-  } else {
-    sessionStorage.removeItem(AUTH_KEY);
-  }
+if (val) {
+sessionStorage.setItem(AUTH_KEY, “1”);
+} else {
+sessionStorage.removeItem(AUTH_KEY);
+sessionStorage.removeItem(TOKEN_KEY);
+}
+}
+
+export function logout() {
+setAuthenticated(false);
 }
 
 export async function authenticate(password: string): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const res = await fetch(`${API_BASE}/panel-auth`, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ password }),
-    });
-    if (res.ok) {
-      setAuthenticated(true);
-      return { ok: true };
-    }
-    const data = await res.json().catch(() => ({ error: "Error de red" }));
-    return { ok: false, error: data.error || "Contraseña incorrecta" };
-  } catch (err) {
-    console.error("[Panel] Auth error:", err);
-    return { ok: false, error: `Error de conexión: ${err}` };
+try {
+const res = await fetch(`${API_BASE}/panel-auth`, {
+method: “POST”,
+headers: { “Content-Type”: “application/json” },
+body: JSON.stringify({ password }),
+});
+
+```
+if (res.ok) {
+  const data = await res.json().catch(() => ({}));
+  // Guardar token si el server lo devuelve
+  if (data.token) {
+    sessionStorage.setItem(TOKEN_KEY, data.token);
   }
+  setAuthenticated(true);
+  return { ok: true };
 }
 
-// ── Load from server → hydrate localStorage ─────────────────
+const data = await res.json().catch(() => ({ error: "Error de red" }));
+return { ok: false, error: data.error || "Contraseña incorrecta" };
+```
+
+} catch (err) {
+console.error(”[Panel] Auth error:”, err);
+return { ok: false, error: `Error de conexión: ${err}` };
+}
+}
+
+// ── Request helper ───────────────────────────────────────────
+
+async function request<T>(
+method: string,
+path: string,
+body?: unknown
+): Promise<{ ok: boolean; data?: T; error?: string }> {
+try {
+const res = await fetch(`${API_BASE}${path}`, {
+method,
+headers: headers(),
+…(body !== undefined ? { body: JSON.stringify(body) } : {}),
+});
+
+```
+if (res.status === 401) {
+  setAuthenticated(false);
+  return { ok: false, error: "Sesión expirada. Reingresá la contraseña." };
+}
+
+if (res.status === 204) {
+  return { ok: true };
+}
+
+if (!res.ok) {
+  const text = await res.text().catch(() => res.statusText);
+  console.error(`[Panel] ${method} ${path} → ${res.status}: ${text}`);
+  return { ok: false, error: `Error ${res.status}: ${text}` };
+}
+
+const data = await res.json().catch(() => undefined);
+return { ok: true, data };
+```
+
+} catch (err) {
+console.error(`[Panel] ${method} ${path} error:`, err);
+return { ok: false, error: `Error de red: ${err}` };
+}
+}
+
+// ── Load from server → hydrate localStorage ──────────────────
 
 export async function loadPanelDataFromServer(): Promise<boolean> {
-  try {
-    const res = await fetch(`${API_BASE}/panel-data`, {
-      method: "GET",
-      headers: headers(),
-    });
-    if (!res.ok) {
-      console.error(`[Panel] Failed to fetch panel data: ${res.status}`);
-      return false;
-    }
-    const data = await res.json();
-    const questions: PanelQuestion[] = data.questions || [];
-    const drops: PanelDrop[] = data.drops || [];
+try {
+const [questionsRes, dropsRes] = await Promise.all([
+request<PanelQuestion[]>(“GET”, “/admin/questions”),
+request<PanelDrop[]>(“GET”, “/admin/drops”),
+]);
 
-    // Hydrate localStorage
-    localStorage.setItem(QUESTIONS_KEY, JSON.stringify(questions));
-    localStorage.setItem(DROPS_KEY, JSON.stringify(drops));
-
-    console.log(`[Panel] Loaded from server: ${questions.length} questions, ${drops.length} drops`);
-    return true;
-  } catch (err) {
-    console.error("[Panel] Error loading panel data from server:", err);
-    return false;
-  }
+```
+if (!questionsRes.ok || !dropsRes.ok) {
+  console.error("[Panel] Failed to load from server:", {
+    questions: questionsRes.error,
+    drops: dropsRes.error,
+  });
+  return false;
 }
 
-// ── Push localStorage → server ──────────────────────────────
+const questions: PanelQuestion[] = questionsRes.data || [];
+const drops: PanelDrop[] = dropsRes.data || [];
 
-let syncTimer: ReturnType<typeof setTimeout> | null = null;
+// Hidratar localStorage
+localStorage.setItem(QUESTIONS_KEY, JSON.stringify(questions));
+localStorage.setItem(DROPS_KEY, JSON.stringify(drops));
+
+console.log(`[Panel] Loaded from server: ${questions.length} questions, ${drops.length} drops`);
+return true;
+```
+
+} catch (err) {
+console.error(”[Panel] Error loading panel data:”, err);
+return false;
+}
+}
+
+// ── scheduleSyncToServer — no-op (legacy) ───────────────────
+// panel-store.ts llama a esto en cada write de localStorage.
+// El bulk sync (/panel-data PUT) ya no existe en el server Hono.
+// Las writes al server se hacen por operación individual usando
+// las funciones syncQuestion* y syncDrop* de abajo.
+
+let _syncTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function scheduleSyncToServer() {
-  if (syncTimer) clearTimeout(syncTimer);
-  syncTimer = setTimeout(() => {
-    syncToServer();
-  }, 1500); // debounce 1.5s
+// No-op intencional. Ver comentario arriba.
+// Kept para compatibilidad con panel-store.ts sin modificarlo.
+if (_syncTimer) clearTimeout(_syncTimer);
+_syncTimer = null;
 }
 
-async function syncToServer() {
-  try {
-    const questionsRaw = localStorage.getItem(QUESTIONS_KEY);
-    const dropsRaw = localStorage.getItem(DROPS_KEY);
-    const questions = questionsRaw ? JSON.parse(questionsRaw) : [];
-    const drops = dropsRaw ? JSON.parse(dropsRaw) : [];
+// ── Stats ─────────────────────────────────────────────────────
 
-    const res = await fetch(`${API_BASE}/panel-data`, {
-      method: "PUT",
-      headers: headers(),
-      body: JSON.stringify({ questions, drops }),
-    });
+export async function loadStats(): Promise<{
+ok: boolean;
+data?: Record<string, unknown>;
+error?: string;
+}> {
+return request(“GET”, “/admin/stats”);
+}
 
-    if (res.ok) {
-      console.log(`[Panel] Synced to server: ${questions.length}q, ${drops.length}d`);
-    } else {
-      const err = await res.text();
-      console.error(`[Panel] Sync failed (${res.status}): ${err}`);
-    }
-  } catch (err) {
-    console.error("[Panel] Sync error:", err);
-  }
+// ── Questions — server writes ─────────────────────────────────
+
+export async function syncQuestionCreate(q: PanelQuestion): Promise<{
+ok: boolean;
+data?: PanelQuestion;
+error?: string;
+}> {
+return request(“POST”, “/admin/questions”, q);
+}
+
+export async function syncQuestionUpdate(
+id: string,
+q: Partial<PanelQuestion>
+): Promise<{ ok: boolean; data?: PanelQuestion; error?: string }> {
+return request(“PUT”, `/admin/questions/${id}`, q);
+}
+
+export async function syncQuestionDelete(id: string): Promise<{
+ok: boolean;
+error?: string;
+}> {
+return request(“DELETE”, `/admin/questions/${id}`);
+}
+
+// ── Drops — server writes ─────────────────────────────────────
+
+export async function syncDropCreate(d: PanelDrop): Promise<{
+ok: boolean;
+data?: PanelDrop;
+error?: string;
+}> {
+return request(“POST”, “/admin/drops”, d);
+}
+
+export async function syncDropUpdate(
+id: string,
+d: Partial<PanelDrop>
+): Promise<{ ok: boolean; data?: PanelDrop; error?: string }> {
+return request(“PUT”, `/admin/drops/${id}`, d);
+}
+
+export async function syncDropDelete(id: string): Promise<{
+ok: boolean;
+error?: string;
+}> {
+return request(“DELETE”, `/admin/drops/${id}`);
+}
+
+// ── Drop Questions (junction) ─────────────────────────────────
+
+export async function syncDropQuestions(
+dropId: string,
+questionIds: string[]
+): Promise<{ ok: boolean; error?: string }> {
+return request(“POST”, `/admin/drop-questions/${dropId}`, { questions: questionIds });
+}
+
+export async function syncDropQuestionRemove(
+dropId: string,
+questionId: string
+): Promise<{ ok: boolean; error?: string }> {
+return request(“DELETE”, `/admin/drop-questions/${dropId}`, { questionId });
+}
+
+// ── Users ─────────────────────────────────────────────────────
+
+export async function loadUsers(): Promise<{
+ok: boolean;
+data?: unknown[];
+error?: string;
+}> {
+return request(“GET”, “/admin/users”);
+}
+
+export async function updateUserStatus(
+userId: string,
+status: string
+): Promise<{ ok: boolean; error?: string }> {
+return request(“PUT”, `/admin/users/${userId}/status`, { status });
+}
+
+export async function updateUserNotes(
+userId: string,
+notes: string
+): Promise<{ ok: boolean; error?: string }> {
+return request(“PUT”, `/admin/users/${userId}/notes`, { notes });
+}
+
+// ── Segments ──────────────────────────────────────────────────
+
+export async function loadSegments(): Promise<{
+ok: boolean;
+data?: unknown[];
+error?: string;
+}> {
+return request(“GET”, “/admin/segments”);
+}
+
+export async function createSegment(segment: unknown): Promise<{
+ok: boolean;
+data?: unknown;
+error?: string;
+}> {
+return request(“POST”, “/admin/segments”, segment);
+}
+
+export async function updateSegment(
+id: string,
+segment: unknown
+): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+return request(“PUT”, `/admin/segments/${id}`, segment);
+}
+
+export async function deleteSegment(id: string): Promise<{
+ok: boolean;
+error?: string;
+}> {
+return request(“DELETE”, `/admin/segments/${id}`);
+}
+
+// ── Config ────────────────────────────────────────────────────
+
+export async function loadConfig(): Promise<{
+ok: boolean;
+data?: unknown;
+error?: string;
+}> {
+return request(“GET”, “/admin/config”);
+}
+
+export async function saveConfig(config: unknown): Promise<{
+ok: boolean;
+error?: string;
+}> {
+return request(“PUT”, “/admin/config”, config);
 }
