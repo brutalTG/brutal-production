@@ -382,7 +382,7 @@ export default function PanelLayout() {
             <div className="flex items-center justify-between">
               <div className="text-[10px] font-['Fira_Code']" style={{ color: "var(--p-text-ghost)" }}>
                 <p>@BBBrutalbot</p>
-                <p className="mt-0.5">Panel v1.0</p>
+                <p className="mt-0.5">Panel v2.0</p>
               </div>
               <button
                 onClick={handleLogout}
