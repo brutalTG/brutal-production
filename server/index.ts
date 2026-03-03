@@ -1186,7 +1186,7 @@ app.post("/bot/webhook", async (c) => {
     const chatId = update.message.chat.id;
     await tgSend("sendMessage", {
       chat_id: chatId,
-      text: `⚡ <b>BRUTAL — Comandos</b>\n\n/start — Iniciar\n/drop — Jugar el Drop activo\n/help — Ver ayuda\n\nLos Drops se publican semanalmente. Respondé rápido, ganá monedas y tickets.`,
+      text: `⚡ <b>BRUTAL — Comandos</b>\n\n/start — Iniciar\n/drop — Jugar el Drop activo\n/leaderboard — Ver ranking\n/perfil — Tu perfil y balance\n/help — Ver ayuda\n\nLos Drops se publican semanalmente. Respondé rápido, ganá cash y tickets.`,
       parse_mode: "HTML",
     });
     return c.json({ ok: true });
