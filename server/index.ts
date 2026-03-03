@@ -1162,7 +1162,7 @@ app.post("/bot/webhook", async (c) => {
         text: `⚡ <b>BRUTAL</b>\n\nHola ${firstName}.\n\nRegistrate para jugar Drops, ganar plata real y competir por premios.`,
         parse_mode: "HTML",
         reply_markup: { inline_keyboard: [[
-          { text: "🔥 Entrar", web_app: { url: `https://brutal-production-production-24da.up.railway.app` } }
+          { text: "🔥 Entrar", web_app: { url: `https://brutal-production-production-24da.up.railway.app/entrar` } }
         ]] }
       });
       return c.json({ ok: true });
@@ -1181,7 +1181,7 @@ app.post("/bot/webhook", async (c) => {
         text: msgs[node.status] || "⚠️ Tu cuenta no está activa.",
         parse_mode: "HTML",
         ...(node.status === "incomplete" ? { reply_markup: { inline_keyboard: [[
-          { text: "📝 Completar registro", web_app: { url: `https://brutal-production-production-24da.up.railway.app` } }
+          { text: "📝 Completar registro", web_app: { url: `https://brutal-production-production-24da.up.railway.app/entrar` } }
         ]] } } : {})
       });
       return c.json({ ok: true });
@@ -1214,7 +1214,7 @@ app.post("/bot/webhook", async (c) => {
         text: "⚡ Todavía no sos parte de <b>BRUTAL</b>.\n\nRegistrate para jugar Drops, ganar plata y competir por premios.",
         parse_mode: "HTML",
         reply_markup: { inline_keyboard: [[
-          { text: "🔥 Entrar", web_app: { url: `https://brutal-production-production-24da.up.railway.app` } }
+          { text: "🔥 Entrar", web_app: { url: `https://brutal-production-production-24da.up.railway.app/entrar` } }
         ]] }
       });
       return c.json({ ok: true });
@@ -1233,7 +1233,7 @@ app.post("/bot/webhook", async (c) => {
         text: msgs[node.status] || "⚠️ Tu cuenta no está activa.",
         parse_mode: "HTML",
         ...(node.status === "incomplete" ? { reply_markup: { inline_keyboard: [[
-          { text: "📝 Completar registro", web_app: { url: `https://brutal-production-production-24da.up.railway.app` } }
+          { text: "📝 Completar registro", web_app: { url: `https://brutal-production-production-24da.up.railway.app/entrar` } }
         ]] } } : {})
       });
       return c.json({ ok: true });
@@ -1319,7 +1319,7 @@ app.post("/bot/webhook", async (c) => {
         chat_id: chatId,
         text: "⚠️ No estás registrado. Abrí la app primero.",
         reply_markup: { inline_keyboard: [[
-          { text: "🔥 Abrir BRUTAL", web_app: { url: `https://brutal-production-production-24da.up.railway.app` } }
+          { text: "🔥 Abrir BRUTAL", web_app: { url: `https://brutal-production-production-24da.up.railway.app/entrar` } }
         ]] }
       });
       return c.json({ ok: true });
@@ -1368,7 +1368,7 @@ app.post("/bot/webhook", async (c) => {
           text: "⚠️ No estás registrado. Abrí la app primero.",
           reply_markup: {
             inline_keyboard: [[
-              { text: "🔥 Abrir BRUTAL", web_app: { url: `https://brutal-production-production-24da.up.railway.app` } }
+              { text: "🔥 Abrir BRUTAL", web_app: { url: `https://brutal-production-production-24da.up.railway.app/entrar` } }
             ]]
           }
         });
