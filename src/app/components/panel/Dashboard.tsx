@@ -45,7 +45,7 @@ export function Dashboard() {
       return;
     }
 
-    fetch(`${API_BASE}/sessions/${targetDrop.dropId}/stats`, {
+    fetch(`${API_BASE}/analysis/drop-summary?drop_id=${targetDrop.dropId}`, {
       headers: { "X-Panel-Token": sessionStorage.getItem("brutal_panel_token") || "" },
     })
       .then((r) => {

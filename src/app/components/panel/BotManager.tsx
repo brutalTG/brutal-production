@@ -28,7 +28,7 @@ import {
 // Auth: panel token from sessionStorage (set during login)
 
 const API_BASE = "";
-const CRON_POLL_URL = `${API_BASE}/bot-poll`;
+const CRON_POLL_URL = `${API_BASE}/bot/poll`;
 const CRON_AUTH_HEADER = sessionStorage.getItem("brutal_panel_token") || "";
 const headers = () => ({
   "Content-Type": "application/json",
@@ -537,7 +537,7 @@ function QuestionsTab() {
 
   const loadQuestions = useCallback(async () => {
     try {
-      const data = await apiFetch<{ questions: BotQuestion[] }>("/bot-questions");
+      const data = await apiFetch<{ questions: BotQuestion[] }>("/bot/questions");
       setQuestions(data.questions);
     } catch (err) {
       console.error("[BOT] Error loading questions:", err);
@@ -556,7 +556,7 @@ function QuestionsTab() {
   };
 
   const handleCreate = async (q: { text: string; options: string[]; imageUrl: string | null; rewardTickets: number }) => {
-    await apiFetch("/bot-questions", {
+    await apiFetch("/bot/questions", {
       method: "POST",
       body: JSON.stringify(q),
     });
@@ -569,7 +569,7 @@ function QuestionsTab() {
     id: string,
     q: { text: string; options: string[]; imageUrl: string | null; rewardTickets: number }
   ) => {
-    await apiFetch(`/bot-questions/${id}`, {
+    await apiFetch(`/bot/questions/${id}`, {
       method: "PUT",
       body: JSON.stringify(q),
     });
@@ -580,7 +580,7 @@ function QuestionsTab() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("Eliminar esta pregunta bot?")) return;
-    await apiFetch(`/bot-questions/${id}`, { method: "DELETE" });
+    await apiFetch(`/bot/questions/${id}`, { method: "DELETE" });
     showToast("Pregunta eliminada");
     loadQuestions();
   };
@@ -599,7 +599,7 @@ function QuestionsTab() {
         body.targetTelegramUserIds = telegramUserIds;
       }
       const result = await apiFetch<{ sent: number; failed: number; total: number }>(
-        `/bot-send-question/${id}`,
+        `/bot/send-question/${id}`,
         { method: "POST", body: JSON.stringify(body) }
       );
       showToast(`Enviada a ${result.sent}/${result.total} suscriptores${questionSegment ? " (segmento)" : ""}`);
@@ -825,7 +825,7 @@ function NotifyTab() {
       }
 
       const data = await apiFetch<{ sent: number; failed: number; total: number }>(
-        "/bot-send-notification",
+        "/bot/send-notification",
         { method: "POST", body: JSON.stringify(body) }
       );
       setResult(`Enviada a ${data.sent}/${data.total} suscriptores${selectedSegment ? " (segmento)" : ""}`);
@@ -983,7 +983,7 @@ function SubscribersTab() {
 
   const load = useCallback(async () => {
     try {
-      const data = await apiFetch<{ total: number; active: number; subscribers: BotSubscriber[] }>("/bot-subscribers");
+      const data = await apiFetch<{ total: number; active: number; subscribers: BotSubscriber[] }>("/bot/subscribers");
       setSubs(data.subscribers);
       setTotal(data.total);
       setActive(data.active);
@@ -1002,7 +1002,7 @@ function SubscribersTab() {
         <div>
           <h3 className="text-sm font-semibold" style={{ color: "var(--p-text)" }}>Suscriptores</h3>
           <p className="text-[11px]" style={{ color: "var(--p-text-ghost)" }}>
-            Usuarios que hicieron /start en @BBBrutalbot
+            Usuarios que hicieron /start en @BrutalDropBot
           </p>
         </div>
         <button
@@ -1115,7 +1115,7 @@ function ConfigTab() {
       setPolling(true);
       try {
         const data = await apiFetch<{ ok: boolean; processed: number; total: number; errors: number; offset: number }>(
-          "/bot-poll",
+          "/bot/poll",
           { method: "POST" }
         );
         if (data.total > 0) {
@@ -1156,7 +1156,7 @@ function ConfigTab() {
     setPollStats(null);
     try {
       const data = await apiFetch<{ ok: boolean; processed: number; total: number; errors: number; offset: number }>(
-        "/bot-poll",
+        "/bot/poll",
         { method: "POST" }
       );
       if (data.total === 0) {
@@ -1301,7 +1301,7 @@ function ConfigTab() {
         <ul className="text-[11px] space-y-1.5 list-disc list-inside" style={{ color: "var(--p-text-ghost)" }}>
           <li>
             Los usuarios hacen <code className="font-['Fira_Code']" style={{ color: "var(--p-text-muted)" }}>/start</code> en{" "}
-            <span style={{ color: "var(--p-text)" }}>@BBBrutalbot</span> para suscribirse
+            <span style={{ color: "var(--p-text)" }}>@BrutalDropBot</span> para suscribirse
           </li>
           <li>
             El bot usa <span style={{ color: "var(--p-text)" }}>polling</span> (no webhook) porque
@@ -1327,11 +1327,11 @@ function ConfigTab() {
         <div>
           <p className="text-xs font-medium" style={{ color: "var(--p-text)" }}>Link del bot</p>
           <p className="text-[11px] font-['Fira_Code']" style={{ color: "var(--p-text-ghost)" }}>
-            https://t.me/BBBrutalbot
+            https://t.me/BrutalDropBot
           </p>
         </div>
         <button
-          onClick={() => { navigator.clipboard.writeText("https://t.me/BBBrutalbot"); }}
+          onClick={() => { navigator.clipboard.writeText("https://t.me/BrutalDropBot"); }}
           className="p-2 transition-colors"
           style={{ color: "var(--p-text-ghost)" }}
           title="Copiar link"
@@ -1478,7 +1478,7 @@ export function BotManager() {
           <h2 className="text-lg font-bold" style={{ color: "var(--p-text)" }}>Bot</h2>
         </div>
         <p className="text-xs" style={{ color: "var(--p-text-ghost)" }}>
-          Preguntas push, notificaciones y suscriptores de @BBBrutalbot
+          Preguntas push, notificaciones y suscriptores de @BrutalDropBot
         </p>
       </div>
 

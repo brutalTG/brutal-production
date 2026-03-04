@@ -523,7 +523,7 @@ export function NodosManager() {
   const updateStatus = async (id: string, newStatus: NodoStatus) => {
     setStatusLoading((prev) => new Set(prev).add(id));
     try {
-      const res = await fetch(`${API_BASE}/admin/applications/${id}/status`, {
+      const res = await fetch(`${API_BASE}/admin/users/${id}/status`, {
         method: "PUT",
         headers: headers(),
         body: JSON.stringify({ status: newStatus }),
@@ -549,7 +549,7 @@ export function NodosManager() {
   const deleteNodo = async (id: string) => {
     if (!confirm("Eliminar este nodo permanentemente?")) return;
     try {
-      const res = await fetch(`${API_BASE}/admin/applications/${id}`, {
+      const res = await fetch(`${API_BASE}/admin/users/${id}`, {
         method: "DELETE",
         headers: headers(),
       });
@@ -569,7 +569,7 @@ export function NodosManager() {
     if (action === "delete") {
       if (!confirm(`Eliminar ${ids.length} nodos permanentemente?`)) return;
       for (const id of ids) {
-        await fetch(`${API_BASE}/admin/applications/${id}`, { method: "DELETE", headers: headers() });
+        await fetch(`${API_BASE}/admin/users/${id}`, { method: "DELETE", headers: headers() });
       }
       setNodos((prev) => prev.filter((n) => !selectedIds.has(n.applicationId)));
       setSelectedIds(new Set());
@@ -579,7 +579,7 @@ export function NodosManager() {
     // Bulk status update
     const status = action as NodoStatus;
     try {
-      const res = await fetch(`${API_BASE}/admin/applications/bulk-status`, {
+      const res = await fetch(`${API_BASE}/admin/users/bulk-status`, {
         method: "PUT",
         headers: headers(),
         body: JSON.stringify({ ids, status }),
