@@ -53,7 +53,16 @@ export function Dashboard() {
         return r.json();
       })
       .then((data) => {
-        setStats(data);
+        // Server returns snake_case, normalize to camelCase with safe defaults
+        setStats({
+          dropId: data.drop_id || targetDrop.dropId,
+          totalSessions: data.total_sessions ?? data.totalSessions ?? 0,
+          completedSessions: data.completed_sessions ?? data.completedSessions ?? 0,
+          abandonedSessions: data.abandoned_sessions ?? data.abandonedSessions ?? 0,
+          avgAbandonPosition: data.avg_abandon_position ?? data.avgAbandonPosition ?? null,
+          avgLatencyMs: data.avg_latency_ms ?? data.avgLatencyMs ?? null,
+          archetypeDistribution: data.archetype_distribution ?? data.archetypeDistribution ?? {},
+        });
         setLoading(false);
       })
       .catch((err) => {
