@@ -1885,9 +1885,8 @@ app.delete("/bot/questions/:id", requirePanel, async (c) => {
 app.get("/bot/subscribers", requirePanel, async (c) => {
   const { data, error } = await db()
     .from("node_channels")
-    .select("node_id, channel_identifier, created_at, nodes(nickname, status, profiles(*))")
-    .eq("channel", "telegram")
-    .order("created_at", { ascending: false });
+    .select("node_id, channel_identifier, is_primary, nodes(nickname, status)")
+    .eq("channel", "telegram");
   if (error) return c.json({ error: error.message }, 500);
   const subscribers = (data || []).map((nc: any) => ({
     userId: nc.channel_identifier,
@@ -1895,8 +1894,8 @@ app.get("/bot/subscribers", requirePanel, async (c) => {
     firstName: nc.nodes?.nickname || "",
     lastName: "",
     username: nc.nodes?.nickname || "",
-    firstSeen: nc.created_at,
-    lastSeen: nc.created_at,
+    firstSeen: "",
+    lastSeen: "",
     active: nc.nodes?.status === "active",
   }));
   return c.json({
@@ -1998,21 +1997,22 @@ app.post("/bot/send-notification", requirePanel, async (c) => {
   return c.json({ sent, failed, total: targetIds.length });
 });
 
-// ── POST /bot/poll — External cron polling endpoint ───────────
+// ── POST /bot/poll — Manual poll trigger (webhook mode - returns bot info) ──
 app.post("/bot/poll", requirePanel, async (c) => {
-  // Get updates from Telegram using getUpdates
   try {
-    const res = await fetch(`https://api.telegram.org/bot${botToken()}/getUpdates?timeout=0&limit=100`);
+    // In webhook mode, we can't use getUpdates. Return bot status instead.
+    const res = await fetch(`https://api.telegram.org/bot${botToken()}/getWebhookInfo`);
     const data = await res.json() as any;
     if (!data.ok) return c.json({ ok: false, error: "Telegram API error" });
-    const updates = data.result || [];
-    let processed = 0;
-    for (const update of updates) {
-      // Acknowledge by offset
-      await fetch(`https://api.telegram.org/bot${botToken()}/getUpdates?offset=${update.update_id + 1}&limit=1`);
-      processed++;
-    }
-    return c.json({ ok: true, processed, total: updates.length });
+    const info = data.result;
+    return c.json({
+      ok: true,
+      mode: "webhook",
+      url: info.url || "(not set)",
+      pending_update_count: info.pending_update_count || 0,
+      last_error_date: info.last_error_date || null,
+      last_error_message: info.last_error_message || null,
+    });
   } catch (err: any) {
     return c.json({ ok: false, error: err.message });
   }
