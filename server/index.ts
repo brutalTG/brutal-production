@@ -1047,6 +1047,7 @@ app.post("/season", requirePanel, async (c) => {
   // Deactivate any existing season
   await db().from("seasons").update({ is_active: false }).eq("is_active", true);
   const insertData: any = {
+    season_id: body.seasonId || body.season_id || `season-${Date.now()}`,
     name: body.name || "Season 1",
     starts_at: body.startDate || body.start_date || body.starts_at || new Date().toISOString(),
     prizes: body.prizes || [],
