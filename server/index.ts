@@ -319,17 +319,69 @@ app.get("/active-drop", async (c) => {
 app.put("/active-drop", requirePanel, async (c) => {
   const body = await c.req.json();
   if (body.questions && Array.isArray(body.questions)) {
+    // Archive any currently active drop
     await db().from("drops").update({ status: "archived" }).eq("status", "active");
     const dropId = body.id || body.drop_id || crypto.randomUUID();
-    const { data, error } = await db().from("drops").upsert({
+
+    // Upsert the drop record (without embedding questions in config)
+    const { data: dropData, error: dropErr } = await db().from("drops").upsert({
       drop_id: dropId, name: body.name || "Drop", status: "active",
       published_at: new Date().toISOString(),
       config: { timeoutMessage: body.timeoutMessage, multiplierCheckpoints: body.multiplierCheckpoints,
-        reveal: body.reveal, splash: body.splash, questions: body.questions },
+        reveal: body.reveal, splash: body.splash },
       segment_ids: body.segmentIds || null,
     }).select().single();
-    if (error) return c.json({ error: error.message }, 500);
-    return c.json({ dropId: data.drop_id, questionCount: body.questions.length });
+    if (dropErr) return c.json({ error: dropErr.message }, 500);
+
+    // Clear old linkages for this drop
+    await db().from("drop_questions").delete().eq("drop_id", dropId);
+
+    // Persist each question as a DB record + link to drop
+    let linked = 0;
+    for (let i = 0; i < body.questions.length; i++) {
+      const q = body.questions[i];
+      const qType = q.type;
+      if (!qType) continue;
+
+      // Extract reward from question's reward field (frontend format)
+      const rewardCash = q.reward?.type === "coins" ? (q.reward.value || 0) : 0;
+      const rewardTickets = q.reward?.type === "tickets" ? (q.reward.value || 0) : 0;
+
+      // Build the config object (everything except meta fields)
+      const { type: _t, reward: _r, questionId: _qid, ...config } = q;
+
+      // Upsert question: if questionId exists, update; otherwise create new
+      let questionId = q.questionId || null;
+      if (questionId) {
+        // Update existing question
+        await db().from("questions").upsert({
+          question_id: questionId, type: qType, config,
+          reward_cash: rewardCash, reward_tickets: rewardTickets,
+          label: q.text || q.statement || q.label || null,
+          trap_correct_option: q.trapCorrectIndex != null ? String(q.trapCorrectIndex) : null,
+        });
+      } else {
+        // Create new question
+        const { data: newQ } = await db().from("questions").insert({
+          type: qType, config,
+          reward_cash: rewardCash, reward_tickets: rewardTickets,
+          label: q.text || q.statement || q.label || null,
+          trap_correct_option: q.trapCorrectIndex != null ? String(q.trapCorrectIndex) : null,
+        }).select("question_id").single();
+        questionId = newQ?.question_id;
+      }
+
+      if (questionId) {
+        await db().from("drop_questions").insert({
+          drop_id: dropId, question_id: questionId, position: i,
+          reward_cash_override: rewardCash || null,
+          reward_tickets_override: rewardTickets || null,
+        });
+        linked++;
+      }
+    }
+
+    return c.json({ dropId: dropData.drop_id, questionCount: linked });
   }
   if (body.drop_id) {
     await db().from("drops").update({ status: "archived" }).eq("status", "active");
@@ -350,12 +402,45 @@ app.delete("/active-drop", requirePanel, async (c) => {
 app.put("/preview-drop", requirePanel, async (c) => {
   const body = await c.req.json();
   const dropId = body.id || "preview-" + crypto.randomUUID();
+  // Upsert drop without embedding questions
   const { error } = await db().from("drops").upsert({
     drop_id: dropId, name: body.name || "Preview", status: "draft",
     config: { timeoutMessage: body.timeoutMessage, multiplierCheckpoints: body.multiplierCheckpoints,
-      reveal: body.reveal, splash: body.splash, questions: body.questions, _preview: true },
+      reveal: body.reveal, splash: body.splash, _preview: true },
   }).select().single();
   if (error) return c.json({ error: error.message }, 500);
+
+  // Persist questions + linkages (same logic as active-drop)
+  if (body.questions && Array.isArray(body.questions)) {
+    await db().from("drop_questions").delete().eq("drop_id", dropId);
+    for (let i = 0; i < body.questions.length; i++) {
+      const q = body.questions[i];
+      if (!q.type) continue;
+      const rewardCash = q.reward?.type === "coins" ? (q.reward.value || 0) : 0;
+      const rewardTickets = q.reward?.type === "tickets" ? (q.reward.value || 0) : 0;
+      const { type: _t, reward: _r, questionId: _qid, ...config } = q;
+      let questionId = q.questionId || null;
+      if (questionId) {
+        await db().from("questions").upsert({
+          question_id: questionId, type: q.type, config,
+          reward_cash: rewardCash, reward_tickets: rewardTickets,
+          label: q.text || q.statement || q.label || null,
+        });
+      } else {
+        const { data: newQ } = await db().from("questions").insert({
+          type: q.type, config, reward_cash: rewardCash, reward_tickets: rewardTickets,
+          label: q.text || q.statement || q.label || null,
+        }).select("question_id").single();
+        questionId = newQ?.question_id;
+      }
+      if (questionId) {
+        await db().from("drop_questions").insert({
+          drop_id: dropId, question_id: questionId, position: i,
+          reward_cash_override: rewardCash || null, reward_tickets_override: rewardTickets || null,
+        });
+      }
+    }
+  }
   return c.json({ ok: true });
 });
 
@@ -365,12 +450,12 @@ app.get("/preview-drop", async (c) => {
   if (!data) return c.json(null, 404);
   const cfg = data.config || {};
   if (!cfg._preview) return c.json(null, 404);
-  return c.json({
-    id: data.drop_id, name: data.name, version: 1, timeoutMessage: cfg.timeoutMessage,
-    multiplierCheckpoints: cfg.multiplierCheckpoints || {},
-    reveal: cfg.reveal || { title: "", description: "", archetypes: [] },
-    splash: cfg.splash, questions: cfg.questions || [],
-  });
+  // Use drop_questions if available (same as active-drop)
+  const { data: dqRows } = await db().from("drop_questions")
+    .select("position, reward_cash_override, reward_tickets_override, questions(*)")
+    .eq("drop_id", data.drop_id).order("position", { ascending: true });
+  if (dqRows?.length) return c.json(dbToPlayableDrop(data, dqRows));
+  return c.json({ error: "Preview drop has no questions" }, 404);
 });
 
 app.get("/drop/:id", async (c) => {
