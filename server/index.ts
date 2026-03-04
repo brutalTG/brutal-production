@@ -185,7 +185,6 @@ function dbToPlayableDrop(dropRow, questionRows) {
       const q = dq.questions;
       const config = q.config || {};
       return {
-        id: q.question_id,
         type: q.type,
         ...config,
         timer: config.timer ?? 15,
@@ -1043,6 +1042,22 @@ app.get("/season", async (c) => {
   return c.json(dbToSeason(data));
 });
 
+app.post("/season", requirePanel, async (c) => {
+  const body = await c.req.json();
+  // Deactivate any existing season
+  await db().from("seasons").update({ is_active: false }).eq("is_active", true);
+  const { data, error } = await db().from("seasons").insert({
+    name: body.name || "Season 1",
+    start_date: body.startDate || body.start_date || new Date().toISOString(),
+    end_date: body.endDate ?? body.end_date ?? null,
+    prizes: body.prizes || [],
+    prize_image_url: body.prizeImageUrl ?? body.prize_image_url ?? null,
+    is_active: true,
+  }).select().single();
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ season: dbToSeason(data) }, 201);
+});
+
 app.put("/season", requirePanel, async (c) => {
   const body = await c.req.json();
   const updateData: any = {};
@@ -1201,6 +1216,7 @@ app.get("/admin/users", requirePanel, async (c) => {
     const p = Array.isArray(n.profiles) ? n.profiles[0] : n.profiles || {};
     return {
       ...dbToUserProfile(n, p, 0, null),
+      applicationId: n.node_id,
       status: n.status,
       node_id: n.node_id,
       phone: n.phone,
@@ -1212,7 +1228,7 @@ app.get("/admin/users", requirePanel, async (c) => {
     };
   });
 
-  return c.json({ users, count: count || 0 });
+  return c.json({ applications: users, users, count: count || 0 });
 });
 
 app.put("/admin/users/:id/status", requirePanel, async (c) => {
@@ -1249,7 +1265,7 @@ app.put("/admin/users/:id/status", requirePanel, async (c) => {
 
   const { error } = await db().from("nodes").update(updateData).eq("node_id", nodeId);
   if (error) return c.json({ error: error.message }, 500);
-  return c.json({ ok: true, status });
+  return c.json({ ok: true, status, application: { applicationId: nodeId, status } });
 });
 
 app.delete("/admin/users/:id", requirePanel, async (c) => {
@@ -1288,7 +1304,16 @@ app.get("/admin/drops", requirePanel, async (c) => {
   const { data } = await db().from("drops")
     .select("*")
     .order("created_at", { ascending: false });
-  return c.json((data || []).map(dbDropToPanel));
+  const drops = (data || []).map(dbDropToPanel);
+  // Enrich with question IDs from drop_questions table
+  for (const drop of drops) {
+    const { data: dqRows } = await db().from("drop_questions")
+      .select("question_id").eq("drop_id", drop.id).order("position", { ascending: true });
+    if (dqRows?.length) {
+      drop.questionIds = dqRows.map(r => r.question_id);
+    }
+  }
+  return c.json(drops);
 });
 
 app.post("/admin/drops", requirePanel, async (c) => {
