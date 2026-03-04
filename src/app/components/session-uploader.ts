@@ -1,21 +1,37 @@
 // ============================================================
-// SESSION UPLOADER v2 — Per-card upload con retry y offline queue
+// SESSION UPLOADER — Per-card upload lifecycle to Hono server
 // ============================================================
-// Flujo correcto de 3 pasos:
-//   1. startSession(dropId)      → POST /sessions/start   → session_id
-//   2. uploadResponse(...)       → POST /responses        → per-card, inmediato
-//   3. completeSession(...)      → POST /sessions/complete
+// Architecture (3-call lifecycle):
+//   1. serverStartSession(dropId) → POST /sessions/start → session_id
+//   2. uploadResponse(question, index, answer, dropId) → POST /responses (per-card, immediate)
+//   3. completeSession({ archetype_result, bic_scores }) → POST /sessions/complete
 //
-// Diseño fire-and-forget: ningún error bloquea la UI del Drop.
-// Retry con backoff exponencial (1s, 2s, 4s) para errores de servidor.
-// Queue offline: acumula responses cuando no hay red, drena al reconectar.
+// All three endpoints require X-Telegram-Init-Data header.
+// Fire-and-forget: errors are swallowed and never block the Drop UI.
+// Offline queue: responses accumulate in memory when offline, flushed on reconnect.
 // ============================================================
 
-import type { Question } from "./drop-types";
 import type { UserAnswer } from "./archetype-engine";
+import type { Question } from "./drop-types";
 
-// --- Auth header ---
+// ============================================================
+// State
+// ============================================================
 
+let _sessionId: string | null = null;
+let _dropId: string | null = null;
+
+/** Offline queue — responses that couldn't be sent yet */
+const _offlineQueue: Array<{ question: Question; index: number; answer: UserAnswer; dropId: string }> = [];
+
+/** Track the completeSession promise so the UI can await it */
+let _completionPromise: Promise<boolean> | null = null;
+
+// ============================================================
+// Helpers
+// ============================================================
+
+/** Get Telegram initData for auth header */
 function getTelegramInitData(): string {
   try {
     return (window as any).Telegram?.WebApp?.initData || "";
@@ -24,398 +40,290 @@ function getTelegramInitData(): string {
   }
 }
 
-function tgHeaders(): Record<string, string> {
-  return {
-    "Content-Type": "application/json",
-    "X-Telegram-Init-Data": getTelegramInitData(),
-  };
+/** Build common headers */
+function authHeaders(): Record<string, string> {
+  const initData = getTelegramInitData();
+  const h: Record<string, string> = { "Content-Type": "application/json" };
+  if (initData) h["X-Telegram-Init-Data"] = initData;
+  return h;
 }
 
-// ============================================================
-// Retry con backoff exponencial
-// ============================================================
-
-const RETRY_DELAYS_MS = [1000, 2000, 4000];
-
+/**
+ * Fetch with retry — 3 attempts, exponential backoff (1s, 2s, 4s).
+ * Only retries 5xx errors. 4xx are considered permanent failures.
+ */
 async function fetchWithRetry(
   url: string,
   options: RequestInit,
-  retries = 3
-): Promise<Response> {
-  let lastErr: unknown;
-  for (let attempt = 0; attempt <= retries; attempt++) {
+  maxAttempts = 3
+): Promise<Response | null> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const res = await fetch(url, options);
-      // 4xx son errores del cliente → no reintenta (datos incorrectos)
-      if (res.status >= 400 && res.status < 500) return res;
-      // 5xx → reintenta
-      if (!res.ok && attempt < retries) {
-        await sleep(RETRY_DELAYS_MS[attempt] ?? 4000);
-        continue;
+      if (res.ok) return res;
+      // 4xx = permanent failure, don't retry
+      if (res.status >= 400 && res.status < 500) {
+        const body = await res.text().catch(() => "");
+        console.error(`[BRUTAL] ${url} → ${res.status}: ${body}`);
+        return null;
       }
-      return res;
+      // 5xx = transient, retry
+      console.warn(`[BRUTAL] ${url} → ${res.status}, attempt ${attempt}/${maxAttempts}`);
     } catch (err) {
-      lastErr = err;
-      if (attempt < retries) {
-        await sleep(RETRY_DELAYS_MS[attempt] ?? 4000);
-      }
+      console.warn(`[BRUTAL] ${url} network error, attempt ${attempt}/${maxAttempts}:`, err);
+    }
+    if (attempt < maxAttempts) {
+      await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
     }
   }
-  throw lastErr;
+  console.error(`[BRUTAL] ${url} failed after ${maxAttempts} attempts`);
+  return null;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
+/**
+ * Map UserAnswer fields to the flat fields expected by POST /responses.
+ * Server expects: choice_index, slider_value, ranking_result, rafaga_choices,
+ *   text_response, latency_ms, raw_response
+ */
+function answerToPayloadFields(answer: UserAnswer): Record<string, any> {
+  const fields: Record<string, any> = {
+    latency_ms: answer.latencyMs ?? null,
+  };
 
-// ============================================================
-// Estado de sesión
-// ============================================================
-
-let _sessionId: string | null = null;
-let _dropId: string | null = null;
-
-// ============================================================
-// Offline queue
-// ============================================================
-
-interface QueuedResponse {
-  payload: ResponsePayload;
-}
-
-const _offlineQueue: QueuedResponse[] = [];
-let _draining = false;
-
-// Escucha reconexión para drenar la queue
-if (typeof window !== "undefined") {
-  window.addEventListener("online", () => {
-    drainQueue();
-  });
-}
-
-async function drainQueue(): Promise<void> {
-  if (_draining || _offlineQueue.length === 0) return;
-  _draining = true;
-  console.log(`[BRUTAL] Drenando queue offline: ${_offlineQueue.length} respuestas pendientes`);
-
-  while (_offlineQueue.length > 0) {
-    const item = _offlineQueue[0];
-    const ok = await sendResponse(item.payload);
-    if (ok) {
-      _offlineQueue.shift();
-    } else {
-      console.warn("[BRUTAL] Queue drain: fallo al enviar, reintentando en 5s");
-      await sleep(5000);
+  switch (answer.type) {
+    case "choice":
+    case "hot_take":
+    case "trap_silent":
+      fields.choice_index = answer.selectedIndex;
       break;
-    }
+    case "slider":
+      fields.slider_value = answer.value;
+      break;
+    case "ranking":
+      fields.ranking_result = answer.order;
+      break;
+    case "rafaga":
+      fields.rafaga_choices = answer.answers;
+      break;
+    case "trap":
+      fields.raw_response = JSON.stringify({ correct: answer.correct });
+      break;
+    case "confesionario":
+      // Text is stripped for privacy in the answer pipeline;
+      // if somehow present, send as text_response
+      fields.text_response = (answer as any).text || null;
+      break;
+    case "dead_drop":
+    case "timeout":
+      // No additional data
+      break;
+    case "prediction_bet":
+      fields.choice = answer.side;
+      break;
   }
-  _draining = false;
+
+  return fields;
 }
 
 // ============================================================
-// PASO 1: Iniciar sesión
+// Lifecycle: 1. Start Session
 // ============================================================
 
-export async function startSession(dropId: string): Promise<boolean> {
+/**
+ * Start a server session for a Drop.
+ * Returns the session_id on success, null on failure.
+ * Non-blocking — call in background.
+ */
+export async function serverStartSession(dropId: string): Promise<string | null> {
   _dropId = dropId;
   _sessionId = null;
 
   try {
     const res = await fetchWithRetry("/sessions/start", {
       method: "POST",
-      headers: tgHeaders(),
+      headers: authHeaders(),
       body: JSON.stringify({ drop_id: dropId }),
     });
 
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error(`[BRUTAL] sessions/start failed (${res.status}): ${errText}`);
-      return false;
-    }
-
+    if (!res) return null;
     const data = await res.json();
-    _sessionId = data.sessionId ?? data.session_id ?? null;
-    console.log(`[BRUTAL] Sesión iniciada: ${_sessionId}, multiplier: ${data.multiplier}`);
+    _sessionId = data.session_id || null;
+    console.log(`[BRUTAL] Session started: ${_sessionId} (resumed: ${data.resumed})`);
 
-    // Si había responses encoladas esperando session_id, drenarlas ahora
+    // Now flush any responses that queued while session was starting
     if (_sessionId && _offlineQueue.length > 0) {
-      // Actualizar session_id en todos los items encolados
-      for (const item of _offlineQueue) {
-        item.payload.session_id = _sessionId;
-      }
-      drainQueue();
+      _flushQueue();
     }
 
-    return !!_sessionId;
+    return _sessionId;
   } catch (err) {
-    console.error("[BRUTAL] sessions/start error:", err);
-    return false;
+    console.error("[BRUTAL] startSession error:", err);
+    return null;
   }
 }
 
 // ============================================================
-// Payload type para POST /responses
+// Lifecycle: 2. Upload Response (per-card)
 // ============================================================
 
-export interface ResponsePayload {
-  session_id: string;
-  drop_id: string;
-  question_id: string;
-  position_in_drop: number;
-  question_type: string;
-  choice?: string;
-  choice_index?: number;
-  text_response?: string;
-  slider_value?: number;
-  ranking_result?: unknown;
-  rafaga_choices?: unknown;
-  raw_response?: unknown;
-  latency_ms: number;
+/**
+ * Upload a single card response to the server.
+ * If offline or session not started, queues for later.
+ * Fire-and-forget — never throws, never blocks UI.
+ */
+export async function uploadResponse(
+  question: Question,
+  index: number,
+  answer: UserAnswer,
+  dropId: string
+): Promise<void> {
+  // Queue if offline
+  if (!navigator.onLine) {
+    _offlineQueue.push({ question, index, answer, dropId });
+    console.log(`[BRUTAL] Offline — queued response for card ${index}`);
+    return;
+  }
+
+  // Queue if session not started yet
+  if (!_sessionId) {
+    _offlineQueue.push({ question, index, answer, dropId });
+    console.log(`[BRUTAL] No session_id yet — queued response for card ${index}`);
+    return;
+  }
+
+  await _sendResponse(question, index, answer, dropId);
 }
 
-// ============================================================
-// Mapper: UserAnswer → campos planos del server
-// ============================================================
-
-function answerToPayloadFields(
+/** Internal: actually send a response to the server */
+async function _sendResponse(
+  question: Question,
+  index: number,
   answer: UserAnswer,
-  question: Question
-): Partial<ResponsePayload> {
-  const base: Partial<ResponsePayload> = {
-    latency_ms: (answer as { latencyMs?: number }).latencyMs ?? 0,
+  dropId: string
+): Promise<void> {
+  if (!_sessionId) return;
+
+  const payload: Record<string, any> = {
+    session_id: _sessionId,
+    drop_id: dropId,
+    question_id: (question as any).questionId || null,
+    position_in_drop: index,
+    question_type: question.type,
+    source: "drop_card",
+    ...answerToPayloadFields(answer),
   };
 
-  switch (answer.type) {
-    case "choice":
-    case "hot_take": {
-      const q = question as { options?: Array<{ text?: string; label?: string }> };
-      const opts = q.options || [];
-      const opt = opts[answer.selectedIndex];
-      return {
-        ...base,
-        choice_index: answer.selectedIndex,
-        choice: opt?.text ?? opt?.label ?? String(answer.selectedIndex),
-        raw_response: { selectedIndex: answer.selectedIndex },
-      };
-    }
-
-    case "slider":
-      return {
-        ...base,
-        slider_value: answer.value,
-        raw_response: { value: answer.value },
-      };
-
-    case "ranking":
-      return {
-        ...base,
-        ranking_result: answer.order,
-        raw_response: { order: answer.order },
-      };
-
-    case "rafaga":
-      return {
-        ...base,
-        rafaga_choices: answer.answers,
-        raw_response: { answers: answer.answers },
-      };
-
-    case "prediction_bet":
-      return {
-        ...base,
-        choice: answer.side,
-        choice_index: answer.side === "A" ? 0 : 1,
-        raw_response: { side: answer.side },
-      };
-
-    case "trap":
-      return {
-        ...base,
-        choice: answer.correct ? "correct" : "incorrect",
-        choice_index: answer.correct ? 1 : 0,
-        raw_response: { correct: answer.correct },
-      };
-
-    case "trap_silent":
-      return {
-        ...base,
-        choice: answer.correct ? "correct" : "incorrect",
-        choice_index: (answer as { selectedIndex?: number }).selectedIndex ?? 0,
-        raw_response: {
-          correct: answer.correct,
-          selectedIndex: (answer as { selectedIndex?: number }).selectedIndex,
-        },
-      };
-
-    case "confesionario":
-      return {
-        ...base,
-        text_response: (answer as { text?: string }).text ?? "",
-        raw_response: { type: "confesionario" },
-      };
-
-    case "dead_drop":
-    case "timeout":
-      return {
-        ...base,
-        raw_response: { type: answer.type },
-      };
-
-    default:
-      return base;
-  }
-}
-
-// ============================================================
-// Envío individual (interno)
-// ============================================================
-
-async function sendResponse(payload: ResponsePayload): Promise<boolean> {
   try {
     const res = await fetchWithRetry("/responses", {
       method: "POST",
-      headers: tgHeaders(),
+      headers: authHeaders(),
       body: JSON.stringify(payload),
+      keepalive: true, // Survives page unload
     });
 
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error(`[BRUTAL] /responses failed (${res.status}): ${errText}`);
-      return false;
+    if (res) {
+      const data = await res.json().catch(() => ({}));
+      console.log(`[BRUTAL] Response ${index} uploaded: reward=${data.reward_granted}, cash=${data.cash_credited}, tickets=${data.tickets_credited}`);
     }
-
-    const data = await res.json();
-    console.log(
-      `[BRUTAL] Response saved: pos=${payload.position_in_drop}, reward=${data.reward_value} ${data.reward_type}, granted=${data.reward_granted}`
-    );
-    return true;
   } catch (err) {
-    console.error("[BRUTAL] /responses error:", err);
-    return false;
+    console.error(`[BRUTAL] Response ${index} upload error:`, err);
   }
 }
 
 // ============================================================
-// PASO 2: Upload de una respuesta individual (fire-and-forget)
+// Lifecycle: 3. Complete Session
 // ============================================================
 
-export function uploadResponse(params: {
-  question: Question;
-  questionIndex: number;
-  answer: UserAnswer;
-  dropId?: string;
-}): void {
-  const { question, questionIndex, answer } = params;
-  const dropId = params.dropId ?? _dropId;
+/**
+ * Mark the session as completed on the server.
+ * Flushes offline queue first.
+ */
+export async function completeSession(params: {
+  archetype_result?: { id: string; title: string };
+  bic_scores?: any;
+}): Promise<boolean> {
+  const doComplete = async (): Promise<boolean> => {
+    // Flush any queued responses first
+    await _flushQueue();
 
-  if (!dropId) {
-    console.warn("[BRUTAL] uploadResponse: no dropId disponible, skipping");
-    return;
-  }
+    if (!_sessionId) {
+      console.warn("[BRUTAL] completeSession called without session_id");
+      return false;
+    }
 
-  // question_id viene del server via PlayableDrop (campo `id` en dbToPlayableDrop)
-  // Si no está disponible (drop de sample/dev), generamos un placeholder
-  const questionId = (question as { id?: string }).id ?? `sample-q-${questionIndex}`;
+    try {
+      const res = await fetchWithRetry("/sessions/complete", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          session_id: _sessionId,
+          archetype_result: params.archetype_result || null,
+          bic_scores: params.bic_scores || null,
+        }),
+      });
 
-  const payload: ResponsePayload = {
-    session_id: _sessionId ?? "pending",
-    drop_id: dropId,
-    question_id: questionId,
-    position_in_drop: questionIndex,
-    question_type: question.type,
-    ...answerToPayloadFields(answer, question),
+      if (!res) return false;
+      const data = await res.json().catch(() => ({}));
+      console.log("[BRUTAL] Session completed:", data);
+      return true;
+    } catch (err) {
+      console.error("[BRUTAL] completeSession error:", err);
+      return false;
+    }
   };
 
-  // Si no hay session_id todavía (start aún en vuelo), encolar
-  if (!_sessionId) {
-    console.warn(`[BRUTAL] uploadResponse: sesión no iniciada, encola pos=${questionIndex}`);
-    _offlineQueue.push({ payload });
-    return;
-  }
+  _completionPromise = doComplete();
+  return _completionPromise;
+}
 
-  // Sin red → encolar
-  if (typeof navigator !== "undefined" && !navigator.onLine) {
-    console.log(`[BRUTAL] Sin red, encola response pos=${questionIndex}`);
-    _offlineQueue.push({ payload });
-    return;
-  }
+// ============================================================
+// Offline Queue
+// ============================================================
 
-  // Fire-and-forget
-  sendResponse(payload).then((ok) => {
-    if (!ok) {
-      console.warn(`[BRUTAL] uploadResponse falló, encola pos=${questionIndex}`);
-      _offlineQueue.push({ payload });
-    }
+/** Flush all queued responses */
+async function _flushQueue(): Promise<void> {
+  if (_offlineQueue.length === 0) return;
+  if (!_sessionId) return;
+
+  console.log(`[BRUTAL] Flushing ${_offlineQueue.length} queued responses`);
+  const queue = [..._offlineQueue];
+  _offlineQueue.length = 0;
+
+  for (const item of queue) {
+    await _sendResponse(item.question, item.index, item.answer, item.dropId);
+  }
+}
+
+// Auto-flush when coming back online
+if (typeof window !== "undefined") {
+  window.addEventListener("online", () => {
+    console.log("[BRUTAL] Back online — flushing queue");
+    _flushQueue();
   });
 }
 
 // ============================================================
-// PASO 3: Completar sesión
+// Legacy stubs — kept for backward compatibility
 // ============================================================
 
-export async function completeSession(params?: {
-  archetype_result?: unknown;
-  bic_scores?: unknown;
-}): Promise<boolean> {
-  if (!_sessionId) {
-    console.warn("[BRUTAL] completeSession: no hay session_id activo");
-    return false;
-  }
-
-  // Drenar queue pendiente antes de completar
-  await drainQueue();
-
-  try {
-    const body: Record<string, unknown> = { session_id: _sessionId };
-    if (params?.archetype_result) body.archetype_result = params.archetype_result;
-    if (params?.bic_scores) body.bic_scores = params.bic_scores;
-
-    const res = await fetchWithRetry("/sessions/complete", {
-      method: "POST",
-      headers: tgHeaders(),
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error(`[BRUTAL] sessions/complete failed (${res.status}): ${errText}`);
-      return false;
-    }
-
-    console.log(`[BRUTAL] Sesión completada: ${_sessionId}`);
-    _sessionId = null;
-    return true;
-  } catch (err) {
-    console.error("[BRUTAL] sessions/complete error:", err);
-    return false;
-  }
-}
-
-// ============================================================
-// Legacy exports — backward compat
-// ============================================================
-
-import type { DropSession } from "./signal-store";
-
-/**
- * @deprecated Usar startSession + uploadResponse + completeSession
- * No-op mantenido para backward compat.
- */
-export async function uploadSession(_session: DropSession): Promise<boolean> {
-  console.warn("[BRUTAL] uploadSession() está deprecado — usar el flujo per-card");
+/** @deprecated No-op. Sessions are now uploaded per-card. */
+export async function uploadSession(_session: any): Promise<boolean> {
+  console.log("[BRUTAL] uploadSession() is deprecated — responses are sent per-card now");
   return true;
 }
 
-/**
- * @deprecated Usar completeSession()
- * Drena la queue offline si hay items pendientes.
- */
+/** Wait for any pending completion to finish */
 export async function waitForUpload(): Promise<void> {
-  await drainQueue();
+  await _flushQueue();
+  if (_completionPromise) {
+    await _completionPromise;
+    _completionPromise = null;
+  }
 }
 
 /**
- * Claim de rewards — llama al endpoint con auth correcta.
+ * Claim rewards for a completed drop.
+ * Idempotent: server checks if already claimed.
  */
 export async function claimRewards(params: {
   telegramUserId: number;
@@ -423,33 +331,30 @@ export async function claimRewards(params: {
   coins: number;
   tickets: number;
   finalTickets: number;
-}): Promise<{
-  ok: boolean;
-  alreadyClaimed?: boolean;
-  credited?: { coins: number; tickets: number; dropsCompleted: number };
-}> {
-  console.log(
-    `[BRUTAL] Claiming rewards: userId=${params.telegramUserId}, dropId=${params.dropId}`
-  );
+}): Promise<{ ok: boolean; alreadyClaimed?: boolean; credited?: { coins: number; tickets: number; dropsCompleted: number } }> {
+  console.log(`[BRUTAL] Claiming rewards: userId=${params.telegramUserId}, dropId=${params.dropId}, coins=${params.coins}, tickets=${params.finalTickets}`);
 
-  try {
-    const res = await fetchWithRetry("/claim-rewards", {
-      method: "POST",
-      headers: tgHeaders(),
-      body: JSON.stringify(params),
-    });
+  const res = await fetch("/claim-rewards", {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(params),
+  });
 
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error(`[BRUTAL] claim-rewards failed (${res.status}): ${errText}`);
-      throw new Error(`Claim failed: ${res.status} ${errText}`);
-    }
-
-    const result = await res.json();
-    console.log("[BRUTAL] Claim result:", result);
-    return result;
-  } catch (err) {
-    console.error("[BRUTAL] claimRewards error:", err);
-    throw err;
+  if (!res.ok) {
+    const errBody = await res.text();
+    console.error(`[BRUTAL] Claim failed (${res.status}): ${errBody}`);
+    throw new Error(`Claim failed: ${res.status} ${errBody}`);
   }
+
+  const result = await res.json();
+  console.log("[BRUTAL] Claim result:", result);
+  return result;
+}
+
+/** Reset state between drops */
+export function resetUploader(): void {
+  _sessionId = null;
+  _dropId = null;
+  _offlineQueue.length = 0;
+  _completionPromise = null;
 }
