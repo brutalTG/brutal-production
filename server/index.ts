@@ -1837,11 +1837,12 @@ app.post("/bot/send-message", requirePanel, async (c) => {
 
 app.get("/bot/questions", requirePanel, async (c) => {
   const { data } = await db().from("bot_questions").select("*, questions(*)").order("created_at", { ascending: false });
-  return c.json((data || []).map((bq) => ({
+  const questions = (data || []).map((bq) => ({
     ...bq,
     question: bq.questions ? dbQuestionToPanel(bq.questions) : null,
     questions: undefined,
-  })));
+  }));
+  return c.json({ questions });
 });
 
 app.post("/bot/questions", requirePanel, async (c) => {
@@ -1853,6 +1854,214 @@ app.post("/bot/questions", requirePanel, async (c) => {
   }).select().single();
   if (error) return c.json({ error: error.message }, 500);
   return c.json(data, 201);
+});
+
+// ── PUT /bot/questions/:id — Update bot question ──────────────
+app.put("/bot/questions/:id", requirePanel, async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json();
+  const update: Record<string, unknown> = {};
+  if (body.question_id !== undefined) update.question_id = body.question_id;
+  if (body.linked_drop_id !== undefined) update.linked_drop_id = body.linked_drop_id;
+  if (body.bot_name !== undefined) update.bot_name = body.bot_name;
+  if (body.message_config !== undefined) update.message_config = body.message_config;
+  if (body.segment_ids !== undefined) update.segment_ids = body.segment_ids;
+  update.updated_at = new Date().toISOString();
+  const { data, error } = await db().from("bot_questions").update(update).eq("id", id).select().single();
+  if (error) return c.json({ error: error.message }, 500);
+  if (!data) return c.json({ error: "Not found" }, 404);
+  return c.json(data);
+});
+
+// ── DELETE /bot/questions/:id — Delete bot question ───────────
+app.delete("/bot/questions/:id", requirePanel, async (c) => {
+  const id = c.req.param("id");
+  const { error } = await db().from("bot_questions").delete().eq("id", id);
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ ok: true });
+});
+
+// ── GET /bot/subscribers — List nodes with telegram channel ───
+app.get("/bot/subscribers", requirePanel, async (c) => {
+  const { data, error } = await db()
+    .from("node_channels")
+    .select("node_id, channel_identifier, created_at, nodes(nickname, status, profiles(*))")
+    .eq("channel", "telegram")
+    .order("created_at", { ascending: false });
+  if (error) return c.json({ error: error.message }, 500);
+  const subscribers = (data || []).map((nc: any) => ({
+    userId: nc.channel_identifier,
+    chatId: nc.channel_identifier,
+    firstName: nc.nodes?.nickname || "",
+    lastName: "",
+    username: nc.nodes?.nickname || "",
+    firstSeen: nc.created_at,
+    lastSeen: nc.created_at,
+    active: nc.nodes?.status === "active",
+  }));
+  return c.json({
+    total: subscribers.length,
+    active: subscribers.filter((s: any) => s.active).length,
+    subscribers,
+  });
+});
+
+// ── POST /bot/send-question/:id — Send bot question to users ──
+app.post("/bot/send-question/:id", requirePanel, async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+  // Get the bot question with its linked question
+  const { data: bq } = await db().from("bot_questions").select("*, questions(*)").eq("id", id).single();
+  if (!bq || !bq.questions) return c.json({ error: "Bot question not found or no linked question" }, 404);
+  const q = bq.questions as any;
+  const text = q.data?.prompt || q.data?.text || "Pregunta BRUTAL";
+  const options = q.data?.options || [];
+  // Build inline keyboard
+  const keyboard = options.map((opt: any, i: number) => ([{
+    text: typeof opt === "string" ? opt : opt.text || opt.label || `Opción ${i + 1}`,
+    callback_data: `bq:${id}:${i}`,
+  }]));
+  // Determine target users
+  let targetIds: string[] = body.targetTelegramUserIds || [];
+  if (targetIds.length === 0) {
+    const { data: channels } = await db().from("node_channels")
+      .select("channel_identifier, nodes!inner(status)")
+      .eq("channel", "telegram");
+    targetIds = (channels || []).filter((ch: any) => ch.nodes?.status === "active").map((ch: any) => ch.channel_identifier);
+  }
+  let sent = 0, failed = 0;
+  for (const chatId of targetIds) {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${botToken()}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId, text, parse_mode: "HTML",
+          reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined,
+        }),
+      });
+      if ((await res.json()).ok) sent++; else failed++;
+    } catch { failed++; }
+  }
+  // Update sent count
+  await db().from("bot_questions").update({
+    sent_count: (bq.sent_count || 0) + sent,
+    last_sent_at: new Date().toISOString(),
+  }).eq("id", id);
+  return c.json({ sent, failed, total: targetIds.length });
+});
+
+// ── POST /bot/send-notification — Send notification to users ──
+app.post("/bot/send-notification", requirePanel, async (c) => {
+  const body = await c.req.json();
+  const { text, type, imageUrl, buttonText, buttonUrl, targetTelegramUserIds } = body;
+  if (!text) return c.json({ error: "text required" }, 400);
+  // Determine target users
+  let targetIds: string[] = targetTelegramUserIds || [];
+  if (targetIds.length === 0) {
+    const { data: channels } = await db().from("node_channels")
+      .select("channel_identifier, nodes!inner(status)")
+      .eq("channel", "telegram");
+    targetIds = (channels || []).filter((ch: any) => ch.nodes?.status === "active").map((ch: any) => ch.channel_identifier);
+  }
+  // Build message
+  let replyMarkup: any = undefined;
+  if (type === "drop" && buttonText) {
+    // Mini App button for drop
+    replyMarkup = { inline_keyboard: [[{ text: buttonText, web_app: { url: `https://brutal-production-production-24da.up.railway.app/` } }]] };
+  } else if (buttonText && buttonUrl) {
+    replyMarkup = { inline_keyboard: [[{ text: buttonText, url: buttonUrl }]] };
+  }
+  let sent = 0, failed = 0;
+  for (const chatId of targetIds) {
+    try {
+      const msgBody: any = { chat_id: chatId, text, parse_mode: "HTML" };
+      if (replyMarkup) msgBody.reply_markup = replyMarkup;
+      // If there's an image, send photo instead
+      if (imageUrl) {
+        const res = await fetch(`https://api.telegram.org/bot${botToken()}/sendPhoto`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: chatId, photo: imageUrl, caption: text, parse_mode: "HTML", reply_markup: replyMarkup }),
+        });
+        if ((await res.json()).ok) sent++; else failed++;
+      } else {
+        const res = await fetch(`https://api.telegram.org/bot${botToken()}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(msgBody),
+        });
+        if ((await res.json()).ok) sent++; else failed++;
+      }
+    } catch { failed++; }
+  }
+  return c.json({ sent, failed, total: targetIds.length });
+});
+
+// ── POST /bot/poll — External cron polling endpoint ───────────
+app.post("/bot/poll", requirePanel, async (c) => {
+  // Get updates from Telegram using getUpdates
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${botToken()}/getUpdates?timeout=0&limit=100`);
+    const data = await res.json() as any;
+    if (!data.ok) return c.json({ ok: false, error: "Telegram API error" });
+    const updates = data.result || [];
+    let processed = 0;
+    for (const update of updates) {
+      // Acknowledge by offset
+      await fetch(`https://api.telegram.org/bot${botToken()}/getUpdates?offset=${update.update_id + 1}&limit=1`);
+      processed++;
+    }
+    return c.json({ ok: true, processed, total: updates.length });
+  } catch (err: any) {
+    return c.json({ ok: false, error: err.message });
+  }
+});
+
+// ── POST /admin/users/bulk-status — Bulk update user status ───
+app.post("/admin/users/bulk-status", requirePanel, async (c) => {
+  const { ids, status } = await c.req.json();
+  if (!ids || !Array.isArray(ids) || !status) return c.json({ error: "ids (array) and status required" }, 400);
+  const validStatuses = ["active", "pending", "blocked"];
+  if (!validStatuses.includes(status)) return c.json({ error: `Invalid status. Must be: ${validStatuses.join(", ")}` }, 400);
+  const update: Record<string, unknown> = { status };
+  if (status === "active") update.approved_at = new Date().toISOString();
+  let updated = 0;
+  for (const id of ids) {
+    const { error } = await db().from("nodes").update(update).eq("node_id", id);
+    if (!error) updated++;
+  }
+  return c.json({ ok: true, updated, total: ids.length });
+});
+
+// ── PUT /admin/segments/:id — Update segment ─────────────────
+app.put("/admin/segments/:id", requirePanel, async (c) => {
+  const id = c.req.param("id");
+  const body = await c.req.json();
+  const update: Record<string, unknown> = {};
+  if (body.name !== undefined) update.name = body.name;
+  if (body.filters !== undefined) update.filters = body.filters;
+  if (body.description !== undefined) update.description = body.description;
+  update.updated_at = new Date().toISOString();
+  const { data, error } = await db().from("segments").update(update).eq("segment_id", id).select().single();
+  if (error) return c.json({ error: error.message }, 500);
+  if (!data) return c.json({ error: "Segment not found" }, 404);
+  return c.json(data);
+});
+
+// ── GET /admin/segments/:id/telegram-users — Get telegram IDs for segment ──
+app.get("/admin/segments/:id/telegram-users", requirePanel, async (c) => {
+  const id = c.req.param("id");
+  const { data: segment } = await db().from("segments").select("filters").eq("segment_id", id).single();
+  if (!segment) return c.json({ error: "Segment not found" }, 404);
+  // Get all active telegram users (basic implementation — can be refined with actual filter logic)
+  const { data: channels } = await db().from("node_channels")
+    .select("channel_identifier, nodes!inner(status)")
+    .eq("channel", "telegram");
+  const telegramUserIds = (channels || [])
+    .filter((ch: any) => ch.nodes?.status === "active")
+    .map((ch: any) => ch.channel_identifier);
+  return c.json({ telegramUserIds });
 });
 
 // ============================================================================
