@@ -539,72 +539,130 @@ app.post("/responses", requireTelegram, async (c) => {
 
 app.post("/apply", async (c) => {
   const body = await c.req.json();
-  const { phone, nickname, age, gender, location_province, location_city,
-    phone_brand, compass_vector, compass_archetype, compass_choices,
-    brand_choices, brand_vector, handles, referred_by_code, telegram_user_id } = body;
+
+  // Accept both camelCase (frontend) and snake_case field names
+  const phone = body.phone;
+  const nickname = body.nickname;
+  const age = body.age;
+  const gender = body.gender;
+  const phoneBrand = body.phoneBrand || body.phone_brand;
+  const handles = body.handles;
+  const referredByCode = body.referralCode || body.referred_by_code;
+  const telegramUserId = body.telegramUserId || body.telegram_user_id;
+
+  // Location: frontend sends "location" as combined string, or separate fields
+  let locationProvince = body.location_province || null;
+  let locationCity = body.location_city || null;
+  if (!locationProvince && body.location) {
+    const parts = String(body.location).split(">").map((s) => s.trim());
+    locationProvince = parts[0] || null;
+    locationCity = parts[1] || null;
+  }
+
+  // Compass: frontend sends camelCase
+  const compassVector = body.compassVector || body.compass_vector || null;
+  const compassArchetype = body.compassArchetype || body.compass_archetype || null;
+  const brandVector = body.brandVector || body.brand_vector || null;
+
+  // compassRaw: Record<rafagaId, ("A"|"B"|null)[]> from frontend
+  const compassRaw = body.compassRaw || null;
+  const compassChoicesFromBody = body.compass_choices || null;
+  const brandChoices = body.brand_choices || null;
+
   if (!phone) return c.json({ ok: false, error: "Phone required" }, 400);
   const clean = phone.replace(/\D/g, "");
-  if (!clean.startsWith("54") || clean.length !== 12) {
+  if (!clean.startsWith("54") || clean.length < 10 || clean.length > 13) {
     return c.json({ ok: false, error: "Invalid phone" }, 400);
   }
   const normalPhone = "+" + clean;
   const { data: exists } = await db().from("nodes").select("node_id").eq("phone", normalPhone).single();
   if (exists) return c.json({ ok: false, error: "Phone already registered" }, 409);
+
   let referredBy = null;
-  if (referred_by_code) {
-    const { data: ref } = await db().from("nodes").select("node_id").eq("referral_code", referred_by_code).single();
+  if (referredByCode) {
+    const { data: ref } = await db().from("nodes").select("node_id").eq("referral_code", referredByCode).single();
     if (ref) referredBy = ref.node_id;
   }
+
   const isComplete = nickname && age && gender;
   const status = isComplete ? "pending" : "incomplete";
   const { data: newNode, error: nodeErr } = await db().from("nodes").insert({
     phone: normalPhone, nickname: nickname || null, age: age || null, gender: gender || null,
-    location_province: location_province || null, location_city: location_city || null,
-    phone_brand: phone_brand || null, compass_vector: compass_vector || null,
-    compass_archetype: compass_archetype || null, brand_vector: brand_vector || null,
+    location_province: locationProvince, location_city: locationCity,
+    phone_brand: phoneBrand || null, compass_vector: compassVector,
+    compass_archetype: compassArchetype, brand_vector: brandVector,
     handles: handles || null, referred_by: referredBy, status,
     onboarding_step: isComplete ? 99 : 1,
   }).select("node_id, referral_code, status").single();
   if (nodeErr) return c.json({ ok: false, error: nodeErr.message }, 500);
+
   await db().from("profiles").insert({
     node_id: newNode.node_id, cash_balance: 0, cash_lifetime: 0, cash_withdrawn: 0,
     tickets_current: 0, tickets_lifetime: 0, drops_completed: 0, bot_questions_answered: 0,
     traps_passed: 0, traps_failed: 0, current_streak: 0, best_streak: 0,
   });
   await anonId(newNode.node_id);
-  if (telegram_user_id) {
-    await db().from("node_channels").insert({
+
+  if (telegramUserId) {
+    await db().from("node_channels").upsert({
       node_id: newNode.node_id, channel: "telegram",
-      channel_identifier: String(telegram_user_id), is_primary: true,
-    });
+      channel_identifier: String(telegramUserId), is_primary: true,
+    }, { onConflict: "channel,channel_identifier" });
   }
-  if (compass_choices?.length) {
+
+  // Save compass choices — handle compassRaw (frontend format) or compass_choices (direct)
+  if (compassRaw && typeof compassRaw === "object") {
+    const { data: config } = await db().from("compass_config").select("rafagas").limit(1).single();
+    const rafagaList = config?.rafagas || [];
+    const rows = [];
+    const rafagaIds = Object.keys(compassRaw);
+    for (let ri = 0; ri < rafagaIds.length; ri++) {
+      const rafagaId = rafagaIds[ri];
+      const answers = compassRaw[rafagaId];
+      const rafagaDef = rafagaList.find((r) => r.id === rafagaId);
+      if (!answers) continue;
+      for (let pi = 0; pi < answers.length; pi++) {
+        const answer = answers[pi];
+        if (answer === null || answer === undefined) continue;
+        const pair = rafagaDef?.pairs?.[pi];
+        rows.push({
+          node_id: newNode.node_id, rafaga_index: ri, pair_index: pi,
+          emoji_left: pair?.optionA || "", emoji_right: pair?.optionB || "",
+          chosen: answer, latency_ms: null,
+        });
+      }
+    }
+    if (rows.length > 0) {
+      await db().from("node_compass_choices").insert(rows);
+    }
+  } else if (compassChoicesFromBody?.length) {
     await db().from("node_compass_choices").insert(
-      compass_choices.map((ch) => ({ node_id: newNode.node_id, rafaga_index: ch.rafaga_index,
+      compassChoicesFromBody.map((ch) => ({ node_id: newNode.node_id, rafaga_index: ch.rafaga_index,
         pair_index: ch.pair_index, emoji_left: ch.emoji_left || "", emoji_right: ch.emoji_right || "",
         chosen: ch.chosen_emoji || ch.chosen || "", latency_ms: ch.latency_ms }))
     );
   }
-  if (brand_choices?.length) {
+
+  if (brandChoices?.length) {
     await db().from("node_brand_choices").insert(
-      brand_choices.map((ch) => ({ node_id: newNode.node_id, pair_id: ch.pair_id || `brand_${ch.pair_index}`,
+      brandChoices.map((ch) => ({ node_id: newNode.node_id, pair_id: ch.pair_id || `brand_${ch.pair_index}`,
         brand_a: ch.brand_a || "", brand_b: ch.brand_b || "",
         chosen: ch.chosen_brand || ch.chosen || "", latency_ms: ch.latency_ms }))
     );
   }
+
   // Send welcome message via bot after registration
-  if (telegram_user_id && botToken()) {
+  if (telegramUserId && botToken()) {
     const { count } = await db()
       .from("nodes").select("*", { count: "exact", head: true })
       .in("status", ["pending", "active"]);
     const position = count || 1;
-    
     try {
       await fetch(`https://api.telegram.org/bot${botToken()}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chat_id: telegram_user_id,
+          chat_id: telegramUserId,
           text: `✅ <b>Registro completo</b>\n\n` +
             `Tu posición en la fila: <b>#${position}</b>\n\n` +
             `Activá las notificaciones 🔔 que te vamos a avisar por acá cuando estés dentro y tengas un Drop activo para jugar.\n\n` +
