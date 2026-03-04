@@ -1046,14 +1046,16 @@ app.post("/season", requirePanel, async (c) => {
   const body = await c.req.json();
   // Deactivate any existing season
   await db().from("seasons").update({ is_active: false }).eq("is_active", true);
-  const { data, error } = await db().from("seasons").insert({
+  const insertData: any = {
     name: body.name || "Season 1",
     start_date: body.startDate || body.start_date || new Date().toISOString(),
-    end_date: body.endDate ?? body.end_date ?? null,
     prizes: body.prizes || [],
-    prize_image_url: body.prizeImageUrl ?? body.prize_image_url ?? null,
     is_active: true,
-  }).select().single();
+  };
+  if (body.prizeImageUrl ?? body.prize_image_url) {
+    insertData.prize_image_url = body.prizeImageUrl ?? body.prize_image_url;
+  }
+  const { data, error } = await db().from("seasons").insert(insertData).select().single();
   if (error) return c.json({ error: error.message }, 500);
   return c.json({ season: dbToSeason(data) }, 201);
 });
@@ -1063,7 +1065,6 @@ app.put("/season", requirePanel, async (c) => {
   const updateData: any = {};
   if (body.name !== undefined) updateData.name = body.name;
   if (body.startDate || body.start_date) updateData.start_date = body.startDate || body.start_date;
-  if (body.endDate !== undefined || body.end_date !== undefined) updateData.end_date = body.endDate ?? body.end_date;
   if (body.prizes) updateData.prizes = body.prizes;
   if (body.prizeImageUrl !== undefined || body.prize_image_url !== undefined) updateData.prize_image_url = body.prizeImageUrl ?? body.prize_image_url;
 
