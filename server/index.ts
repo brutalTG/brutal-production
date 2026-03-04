@@ -254,8 +254,8 @@ function dbToSeason(row) {
   return {
     seasonId: row.season_id,
     name: row.name,
-    startDate: row.start_date || row.created_at,
-    endDate: row.end_date || null,
+    startDate: row.starts_at || row.created_at,
+    endDate: row.ends_at || null,
     prizes: row.prizes || [],
     prizeImageUrl: row.prize_image_url || null,
     active: row.is_active ?? true,
@@ -1048,13 +1048,10 @@ app.post("/season", requirePanel, async (c) => {
   await db().from("seasons").update({ is_active: false }).eq("is_active", true);
   const insertData: any = {
     name: body.name || "Season 1",
-    start_date: body.startDate || body.start_date || new Date().toISOString(),
+    starts_at: body.startDate || body.start_date || body.starts_at || new Date().toISOString(),
     prizes: body.prizes || [],
     is_active: true,
   };
-  if (body.prizeImageUrl ?? body.prize_image_url) {
-    insertData.prize_image_url = body.prizeImageUrl ?? body.prize_image_url;
-  }
   const { data, error } = await db().from("seasons").insert(insertData).select().single();
   if (error) return c.json({ error: error.message }, 500);
   return c.json({ season: dbToSeason(data) }, 201);
@@ -1064,7 +1061,7 @@ app.put("/season", requirePanel, async (c) => {
   const body = await c.req.json();
   const updateData: any = {};
   if (body.name !== undefined) updateData.name = body.name;
-  if (body.startDate || body.start_date) updateData.start_date = body.startDate || body.start_date;
+  if (body.startDate || body.start_date || body.starts_at) updateData.starts_at = body.startDate || body.start_date || body.starts_at;
   if (body.prizes) updateData.prizes = body.prizes;
   if (body.prizeImageUrl !== undefined || body.prize_image_url !== undefined) updateData.prize_image_url = body.prizeImageUrl ?? body.prize_image_url;
 
