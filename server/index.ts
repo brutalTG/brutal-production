@@ -409,7 +409,7 @@ app.post("/sessions/start", requireTelegram, async (c) => {
     return c.json({ session_id: existing.session_id, resumed: true, current_index: existing.current_position || 0 });
   }
   const { data: session, error } = await db().from("sessions").insert({
-    node_id: node.node_id, drop_id, status: "active", current_position: 0,
+    node_id: node.node_id, drop_id, status: "in_progress", current_position: 0,
     started_at: new Date().toISOString(), total_cash_earned: 0, total_tickets_earned: 0,
     trap_score: 0, traps_passed: 0, traps_failed: 0, multiplier: 1,
   }).select("session_id").single();
