@@ -1484,13 +1484,22 @@ app.post("/admin/questions", requirePanel, async (c) => {
   const type = body.data?.type || body.type;
   const config = body.data || body.config || {};
 
+  // Extract reward from config.reward if top-level fields missing
+  let rewardCash = body.reward_cash || 0;
+  let rewardTickets = body.reward_tickets || 0;
+  if (!rewardCash && !rewardTickets && config?.reward) {
+    const rt = config.reward;
+    if (rt.type === "coins" || rt.type === "cash") rewardCash = rt.value || 0;
+    else if (rt.type === "tickets" || rt.type === "golden_ticket") rewardTickets = rt.value || 0;
+  }
+
   const insertData: any = {
     type,
     config,
     label: body.label || null,
     tags: body.tags || null,
-    reward_cash: body.reward_cash || 0,
-    reward_tickets: body.reward_tickets || 0,
+    reward_cash: rewardCash,
+    reward_tickets: rewardTickets,
     min_latency_ms: body.min_latency_ms || null,
     signal_pair_id: body.signal_pair_id || null,
     signal_pair_role: body.signal_pair_role || null,
@@ -1509,10 +1518,19 @@ app.put("/admin/questions/:id", requirePanel, async (c) => {
   const type = body.data?.type || body.type;
   const config = body.data || body.config;
 
+  // Extract reward from config.reward if top-level fields missing
+  let rewardCash = body.reward_cash || 0;
+  let rewardTickets = body.reward_tickets || 0;
+  if (!rewardCash && !rewardTickets && config?.reward) {
+    const rt = config.reward;
+    if (rt.type === "coins" || rt.type === "cash") rewardCash = rt.value || 0;
+    else if (rt.type === "tickets" || rt.type === "golden_ticket") rewardTickets = rt.value || 0;
+  }
+
   const { data, error } = await db().from("questions").update({
     type, config,
     label: body.label, tags: body.tags,
-    reward_cash: body.reward_cash, reward_tickets: body.reward_tickets,
+    reward_cash: rewardCash, reward_tickets: rewardTickets,
     min_latency_ms: body.min_latency_ms,
     signal_pair_id: body.signal_pair_id,
     signal_pair_role: body.signal_pair_role,
