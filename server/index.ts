@@ -185,6 +185,7 @@ function dbToPlayableDrop(dropRow, questionRows) {
       const q = dq.questions;
       const config = q.config || {};
       return {
+        id: q.question_id,
         type: q.type,
         ...config,
         timer: config.timer ?? 15,
