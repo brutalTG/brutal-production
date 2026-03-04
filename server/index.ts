@@ -1050,6 +1050,7 @@ app.post("/season", requirePanel, async (c) => {
     season_id: body.seasonId || body.season_id || `season-${Date.now()}`,
     name: body.name || "Season 1",
     starts_at: body.startDate || body.start_date || body.starts_at || new Date().toISOString(),
+    ends_at: body.endDate || body.end_date || body.ends_at || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
     prizes: body.prizes || [],
     is_active: true,
   };
