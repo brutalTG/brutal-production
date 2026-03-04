@@ -581,13 +581,15 @@ app.post("/apply", async (c) => {
   if (compass_choices?.length) {
     await db().from("node_compass_choices").insert(
       compass_choices.map((ch) => ({ node_id: newNode.node_id, rafaga_index: ch.rafaga_index,
-        pair_index: ch.pair_index, chosen_emoji: ch.chosen_emoji, latency_ms: ch.latency_ms }))
+        pair_index: ch.pair_index, emoji_left: ch.emoji_left || "", emoji_right: ch.emoji_right || "",
+        chosen: ch.chosen_emoji || ch.chosen || "", latency_ms: ch.latency_ms }))
     );
   }
   if (brand_choices?.length) {
     await db().from("node_brand_choices").insert(
-      brand_choices.map((ch) => ({ node_id: newNode.node_id, pair_index: ch.pair_index,
-        chosen_brand: ch.chosen_brand, latency_ms: ch.latency_ms }))
+      brand_choices.map((ch) => ({ node_id: newNode.node_id, pair_id: ch.pair_id || `brand_${ch.pair_index}`,
+        brand_a: ch.brand_a || "", brand_b: ch.brand_b || "",
+        chosen: ch.chosen_brand || ch.chosen || "", latency_ms: ch.latency_ms }))
     );
   }
   // Send welcome message via bot after registration
@@ -622,9 +624,263 @@ app.get("/apply/check", async (c) => {
   if (!phone) return c.json({ error: "phone required" }, 400);
   const clean = "+" + phone.replace(/\D/g, "");
   const { data } = await db().from("nodes")
-    .select("node_id, status, referral_code").eq("phone", clean).single();
+    .select("node_id, status, referral_code, onboarding_step").eq("phone", clean).single();
   if (!data) return c.json({ exists: false });
-  return c.json({ exists: true, referralCode: data.referral_code });
+  return c.json({ exists: true, nodeId: data.node_id, referralCode: data.referral_code, onboardingStep: data.onboarding_step, status: data.status });
+});
+
+// ============================================================================
+// PROGRESSIVE ONBOARDING (Option C2) — 4 new endpoints
+// ============================================================================
+
+// POST /apply/init — Create node with status 'incomplete' at phone input
+// Returns existing node if phone already registered (for resume)
+app.post("/apply/init", async (c) => {
+  const body = await c.req.json();
+  const { phone, telegram_user_id, referred_by_code } = body;
+  if (!phone) return c.json({ ok: false, error: "Phone required" }, 400);
+  const clean = phone.replace(/\D/g, "");
+  if (!clean.startsWith("54") || clean.length < 10 || clean.length > 13) {
+    return c.json({ ok: false, error: "Invalid phone" }, 400);
+  }
+  const normalPhone = "+" + clean;
+
+  // Check if node already exists (resume flow)
+  const { data: existing } = await db().from("nodes")
+    .select("node_id, status, onboarding_step, referral_code")
+    .eq("phone", normalPhone).single();
+  if (existing) {
+    return c.json({
+      ok: true, resumed: true,
+      nodeId: existing.node_id,
+      referralCode: existing.referral_code,
+      onboardingStep: existing.onboarding_step,
+      status: existing.status,
+    });
+  }
+
+  // Resolve referral
+  let referredBy = null;
+  if (referred_by_code) {
+    const { data: ref } = await db().from("nodes")
+      .select("node_id").eq("referral_code", referred_by_code).single();
+    if (ref) referredBy = ref.node_id;
+  }
+
+  // Create incomplete node
+  const { data: newNode, error: nodeErr } = await db().from("nodes").insert({
+    phone: normalPhone,
+    status: "incomplete",
+    onboarding_step: 1,
+    referred_by: referredBy,
+  }).select("node_id, referral_code, status, onboarding_step").single();
+
+  if (nodeErr) return c.json({ ok: false, error: nodeErr.message }, 500);
+
+  // Create profile row
+  await db().from("profiles").insert({
+    node_id: newNode.node_id, cash_balance: 0, cash_lifetime: 0, cash_withdrawn: 0,
+    tickets_current: 0, tickets_lifetime: 0, drops_completed: 0, bot_questions_answered: 0,
+    traps_passed: 0, traps_failed: 0, current_streak: 0, best_streak: 0,
+  });
+
+  // Create anonymous ID
+  await anonId(newNode.node_id);
+
+  // Link Telegram channel if provided
+  if (telegram_user_id) {
+    await db().from("node_channels").upsert({
+      node_id: newNode.node_id, channel: "telegram",
+      channel_identifier: String(telegram_user_id), is_primary: true,
+    }, { onConflict: "channel,channel_identifier" });
+  }
+
+  return c.json({
+    ok: true, resumed: false,
+    nodeId: newNode.node_id,
+    referralCode: newNode.referral_code,
+    onboardingStep: 1,
+    status: "incomplete",
+  }, 201);
+});
+
+// PUT /apply/:nodeId/step — Save a single onboarding step progressively
+// Core fields (nickname, age, gender, location_*, phone_brand) → columns
+// Extra fields (occupation, platforms, spending, financialStress) → onboarding_data jsonb
+app.put("/apply/:nodeId/step", async (c) => {
+  const nodeId = c.req.param("nodeId");
+  const body = await c.req.json();
+  const { step, value } = body;
+  if (!step || value === undefined) return c.json({ ok: false, error: "step and value required" }, 400);
+
+  // Verify node exists and is incomplete
+  const { data: node } = await db().from("nodes")
+    .select("node_id, status, onboarding_data").eq("node_id", nodeId).single();
+  if (!node) return c.json({ ok: false, error: "Node not found" }, 404);
+
+  // Core fields go to columns directly
+  const coreFields = ["nickname", "age", "gender", "location_province", "location_city", "phone_brand"];
+  if (coreFields.includes(step)) {
+    const { error } = await db().from("nodes").update({ [step]: value }).eq("node_id", nodeId);
+    if (error) return c.json({ ok: false, error: error.message }, 500);
+  } else {
+    // Extra fields go to onboarding_data jsonb
+    const current = node.onboarding_data || {};
+    current[step] = value;
+    const { error } = await db().from("nodes")
+      .update({ onboarding_data: current }).eq("node_id", nodeId);
+    if (error) return c.json({ ok: false, error: error.message }, 500);
+  }
+
+  // Update step counter (use step index or just increment)
+  // We track the step name so frontend knows where to resume
+  const stepOrder = ["phone", "nickname", "age", "gender", "location", "phone_brand",
+    "occupation", "platforms", "spending", "financialStress"];
+  const stepIdx = stepOrder.indexOf(step);
+  const newStep = stepIdx >= 0 ? stepIdx + 2 : (node.onboarding_data?._step || 1) + 1;
+  await db().from("nodes").update({ onboarding_step: newStep }).eq("node_id", nodeId);
+
+  return c.json({ ok: true, step, saved: true });
+});
+
+// POST /apply/:nodeId/compass-rafaga — Save one ráfaga of Compass choices with latency
+// Called after each of the 5 ráfagas (4 pairs each = 20 total)
+app.post("/apply/:nodeId/compass-rafaga", async (c) => {
+  const nodeId = c.req.param("nodeId");
+  const body = await c.req.json();
+  const { rafaga_index, choices } = body;
+
+  if (rafaga_index === undefined || !choices?.length) {
+    return c.json({ ok: false, error: "rafaga_index and choices required" }, 400);
+  }
+
+  // Verify node exists
+  const { data: node } = await db().from("nodes")
+    .select("node_id").eq("node_id", nodeId).single();
+  if (!node) return c.json({ ok: false, error: "Node not found" }, 404);
+
+  // Delete any existing choices for this ráfaga (idempotent — allows retry)
+  await db().from("node_compass_choices")
+    .delete().eq("node_id", nodeId).eq("rafaga_index", rafaga_index);
+
+  // Insert all choices for this ráfaga
+  // DB columns: node_id, rafaga_index, pair_index, emoji_left, emoji_right, chosen, latency_ms
+  const rows = choices.map((ch) => ({
+    node_id: nodeId,
+    rafaga_index,
+    pair_index: ch.pair_index,
+    emoji_left: ch.emoji_left,
+    emoji_right: ch.emoji_right,
+    chosen: ch.chosen,
+    latency_ms: ch.latency_ms || null,
+  }));
+
+  const { error } = await db().from("node_compass_choices").insert(rows);
+  if (error) return c.json({ ok: false, error: error.message }, 500);
+
+  // Update onboarding step to reflect compass progress
+  const compassStep = 20 + rafaga_index; // steps 20-24 = ráfagas
+  await db().from("nodes").update({ onboarding_step: compassStep }).eq("node_id", nodeId);
+
+  return c.json({ ok: true, rafaga_index, saved: choices.length });
+});
+
+// POST /apply/:nodeId/brand-rafaga — Save brand vs brand choices (mini-ráfaga)
+// Structurally identical to compass but writes to node_brand_choices
+app.post("/apply/:nodeId/brand-rafaga", async (c) => {
+  const nodeId = c.req.param("nodeId");
+  const body = await c.req.json();
+  const { choices } = body;
+
+  if (!choices?.length) {
+    return c.json({ ok: false, error: "choices required" }, 400);
+  }
+
+  const { data: node } = await db().from("nodes")
+    .select("node_id").eq("node_id", nodeId).single();
+  if (!node) return c.json({ ok: false, error: "Node not found" }, 404);
+
+  // Delete existing (idempotent)
+  await db().from("node_brand_choices").delete().eq("node_id", nodeId);
+
+  // DB columns: node_id, pair_id, brand_a, brand_b, chosen, latency_ms
+  const rows = choices.map((ch) => ({
+    node_id: nodeId,
+    pair_id: ch.pair_id,
+    brand_a: ch.brand_a,
+    brand_b: ch.brand_b,
+    chosen: ch.chosen,
+    latency_ms: ch.latency_ms || null,
+  }));
+
+  const { error } = await db().from("node_brand_choices").insert(rows);
+  if (error) return c.json({ ok: false, error: error.message }, 500);
+
+  await db().from("nodes").update({ onboarding_step: 25 }).eq("node_id", nodeId);
+  return c.json({ ok: true, saved: choices.length });
+});
+
+// PUT /apply/:nodeId/complete — Finalize onboarding
+// Receives computed archetype, vector, handles. Sets status to 'pending'.
+app.put("/apply/:nodeId/complete", async (c) => {
+  const nodeId = c.req.param("nodeId");
+  const body = await c.req.json();
+  const { compass_vector, compass_archetype, compass_purity, handles, brand_vector } = body;
+
+  const { data: node } = await db().from("nodes")
+    .select("node_id, status, phone").eq("node_id", nodeId).single();
+  if (!node) return c.json({ ok: false, error: "Node not found" }, 404);
+
+  // Update node with final computed data
+  const { error } = await db().from("nodes").update({
+    compass_vector: compass_vector || null,
+    compass_archetype: compass_archetype || null,
+    brand_vector: brand_vector || null,
+    handles: handles || null,
+    onboarding_step: 99,
+    status: "pending",
+  }).eq("node_id", nodeId);
+
+  if (error) return c.json({ ok: false, error: error.message }, 500);
+
+  // Get referral code for response
+  const { data: updated } = await db().from("nodes")
+    .select("referral_code").eq("node_id", nodeId).single();
+
+  // Send welcome message via bot if telegram channel exists
+  const { data: channel } = await db().from("node_channels")
+    .select("channel_identifier").eq("node_id", nodeId)
+    .eq("channel", "telegram").single();
+
+  if (channel?.channel_identifier && botToken()) {
+    const { count } = await db()
+      .from("nodes").select("*", { count: "exact", head: true })
+      .in("status", ["pending", "active"]);
+    const position = count || 1;
+    try {
+      await fetch(`https://api.telegram.org/bot${botToken()}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: channel.channel_identifier,
+          text: `✅ <b>Registro completo</b>\n\n` +
+            `Tu posición en la fila: <b>#${position}</b>\n\n` +
+            `Activá las notificaciones 🔔 que te vamos a avisar por acá cuando estés dentro y tengas un Drop activo para jugar.\n\n` +
+            `Código de referido: <code>${updated?.referral_code || ""}</code>\nCompartilo con amigos para subir en la fila.`,
+          parse_mode: "HTML",
+        }),
+      });
+    } catch (e) {
+      console.error("[BOT] Post-registration message failed:", e);
+    }
+  }
+
+  return c.json({
+    ok: true,
+    nodeId,
+    referralCode: updated?.referral_code || null,
+    status: "pending",
+  });
 });
 
 app.post("/link-channel", async (c) => {
@@ -1139,8 +1395,16 @@ app.get("/compass-config", async (c) => {
 
 app.put("/compass-config", requirePanel, async (c) => {
   const body = await c.req.json();
-  await db().from("compass_config").delete().neq("key", "__never__");
-  const { data, error } = await db().from("compass_config").insert(body).select().single();
+  // Panel typically sends only { rafagas }, so we merge with existing row
+  const { data: existing } = await db().from("compass_config").select("*").limit(1).single();
+  const merged = {
+    config_id: body.config_id || existing?.config_id || "default",
+    rafagas: body.rafagas ?? existing?.rafagas ?? [],
+    axes: body.axes ?? existing?.axes ?? [],
+    archetypes: body.archetypes ?? existing?.archetypes ?? [],
+  };
+  await db().from("compass_config").delete().neq("config_id", "__never__");
+  const { data, error } = await db().from("compass_config").insert(merged).select().single();
   if (error) return c.json({ error: error.message }, 500);
   return c.json(data);
 });
