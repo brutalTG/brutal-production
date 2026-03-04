@@ -215,6 +215,8 @@ export type QuestionContent =
 // --- Question metadata (applies to all types) ---
 
 export interface QuestionMeta {
+  /** Server-side question UUID, injected at runtime by dbToPlayableDrop. */
+  id?: string;
   /** Timer in seconds. Use 0 for dead_drop (no timer shown). */
   timer: number;
   /** Reward given on completion. Omit for no reward. */
