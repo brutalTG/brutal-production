@@ -1,17 +1,23 @@
 // ============================================================
-// DROP API — Frontend helpers for drop CRUD via Supabase KV
+// DROP API — Frontend helpers for drop CRUD via Hono server
 // ============================================================
 // Used by both the panel (to publish) and SurveyApp (to fetch).
+// Panel calls need X-Panel-Token. Read calls are public.
 // ============================================================
 
-// API calls go to same-origin Hono server
 import type { Drop } from "./drop-types";
 
 const API_BASE = "";  // Same origin — Hono serves API + frontend from Railway
 
-const headers = () => ({
+/** Headers for read-only (public) requests */
+const readHeaders = () => ({
   "Content-Type": "application/json",
-  // Auth: Telegram initData added by SurveyApp when inside Mini App
+});
+
+/** Headers for panel write operations (require auth) */
+const panelHeaders = () => ({
+  "Content-Type": "application/json",
+  "X-Panel-Token": sessionStorage.getItem("brutal_panel_token") || "",
 });
 
 // ── Publish active drop ─────────────────────────────────────
@@ -19,7 +25,7 @@ export async function publishActiveDrop(drop: Drop): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/active-drop`, {
       method: "PUT",
-      headers: headers(),
+      headers: panelHeaders(),
       body: JSON.stringify(drop),
     });
     if (!res.ok) {
@@ -41,7 +47,7 @@ export async function fetchActiveDrop(): Promise<Drop | null> {
   try {
     const res = await fetch(`${API_BASE}/active-drop`, {
       method: "GET",
-      headers: headers(),
+      headers: readHeaders(),
     });
     if (res.status === 404) {
       console.log("[BRUTAL] No active drop published — using fallback");
@@ -61,12 +67,12 @@ export async function fetchActiveDrop(): Promise<Drop | null> {
   }
 }
 
-// ��─ Clear active drop ───────────────────────────────────────
+// ── Clear active drop ───────────────────────────────────────
 export async function clearActiveDrop(): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/active-drop`, {
       method: "DELETE",
-      headers: headers(),
+      headers: panelHeaders(),
     });
     return res.ok;
   } catch (err) {
@@ -80,7 +86,7 @@ export async function publishPreviewDrop(drop: Drop): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/preview-drop`, {
       method: "PUT",
-      headers: headers(),
+      headers: panelHeaders(),
       body: JSON.stringify(drop),
     });
     if (!res.ok) {
@@ -101,7 +107,7 @@ export async function fetchPreviewDrop(): Promise<Drop | null> {
   try {
     const res = await fetch(`${API_BASE}/preview-drop`, {
       method: "GET",
-      headers: headers(),
+      headers: readHeaders(),
     });
     if (res.status === 404) return null;
     if (!res.ok) return null;

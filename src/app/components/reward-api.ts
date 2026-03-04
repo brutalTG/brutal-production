@@ -1,14 +1,21 @@
 // ============================================================
 // REWARD API — Frontend helpers for profile, leaderboard, season
 // ============================================================
-
-// API calls go to same-origin Hono server
+// Admin functions use X-Panel-Token. User functions are public
+// (server uses TG initData or telegramUserId in URL).
+// ============================================================
 
 const API_BASE = "";  // Same origin — Hono serves API + frontend from Railway
 
-const headers = () => ({
+/** Headers for panel/admin operations (require X-Panel-Token) */
+const panelHeaders = () => ({
   "Content-Type": "application/json",
-  // Auth: added per-call as needed (panel token or TG initData)
+  "X-Panel-Token": sessionStorage.getItem("brutal_panel_token") || "",
+});
+
+/** Headers for public/user operations (no auth needed for these endpoints) */
+const publicHeaders = () => ({
+  "Content-Type": "application/json",
 });
 
 // ── Types ────────────────────────────────────────────────────
@@ -72,14 +79,14 @@ export interface LeaderboardResponse {
   totalUsers: number;
 }
 
-// ── Fetch user profile + transactions ────────────────────────
+// ── User functions (public endpoints) ───────────────────────
 
 export async function fetchUserProfile(
   telegramUserId: number
 ): Promise<{ profile: UserProfile; transactions: RewardTransaction[] } | null> {
   try {
     const res = await fetch(`${API_BASE}/user/${telegramUserId}/profile`, {
-      headers: headers(),
+      headers: publicHeaders(),
     });
     if (res.status === 404) return null;
     if (!res.ok) {
@@ -93,8 +100,6 @@ export async function fetchUserProfile(
   }
 }
 
-// ── Link wallet alias ────────────────────────────────────────
-
 export async function linkWallet(
   telegramUserId: number,
   walletAlias: string
@@ -102,7 +107,7 @@ export async function linkWallet(
   try {
     const res = await fetch(`${API_BASE}/user/${telegramUserId}/wallet`, {
       method: "PUT",
-      headers: headers(),
+      headers: publicHeaders(),
       body: JSON.stringify({ walletAlias }),
     });
     return res.ok;
@@ -112,12 +117,10 @@ export async function linkWallet(
   }
 }
 
-// ── Fetch leaderboard ────────────────────────────────────────
-
 export async function fetchLeaderboard(): Promise<LeaderboardResponse | null> {
   try {
     const res = await fetch(`${API_BASE}/leaderboard`, {
-      headers: headers(),
+      headers: publicHeaders(),
     });
     if (!res.ok) {
       console.error(`[REWARD-API] Leaderboard fetch failed (${res.status})`);
@@ -130,12 +133,10 @@ export async function fetchLeaderboard(): Promise<LeaderboardResponse | null> {
   }
 }
 
-// ── Fetch current season ─────────────────────────────────────
-
 export async function fetchSeason(): Promise<Season | null> {
   try {
     const res = await fetch(`${API_BASE}/season`, {
-      headers: headers(),
+      headers: publicHeaders(),
     });
     if (res.status === 404) return null;
     if (!res.ok) return null;
@@ -146,7 +147,7 @@ export async function fetchSeason(): Promise<Season | null> {
   }
 }
 
-// ── Save/update season ───────────────────────────────────────
+// ── Admin functions (require X-Panel-Token) ─────────────────
 
 export async function saveSeason(season: {
   seasonId?: string;
@@ -159,7 +160,7 @@ export async function saveSeason(season: {
   try {
     const res = await fetch(`${API_BASE}/season`, {
       method: "PUT",
-      headers: headers(),
+      headers: panelHeaders(),
       body: JSON.stringify(season),
     });
     if (!res.ok) {
@@ -175,13 +176,11 @@ export async function saveSeason(season: {
   }
 }
 
-// ── Reset season (archive + clear tickets) ───────────────────
-
 export async function resetSeason(): Promise<{ ok: boolean; resetCount?: number }> {
   try {
     const res = await fetch(`${API_BASE}/season/reset`, {
       method: "POST",
-      headers: headers(),
+      headers: panelHeaders(),
     });
     if (!res.ok) {
       const err = await res.text();
@@ -195,7 +194,7 @@ export async function resetSeason(): Promise<{ ok: boolean; resetCount?: number 
   }
 }
 
-// ── Claims ───────────────────────────────────────────────────
+// ── Claims (admin) ──────────────────────────────────────────
 
 export interface Claim {
   claimId: string;
@@ -212,7 +211,7 @@ export interface Claim {
 
 export async function fetchClaims(): Promise<Claim[]> {
   try {
-    const res = await fetch(`${API_BASE}/claims`, { headers: headers() });
+    const res = await fetch(`${API_BASE}/claims`, { headers: panelHeaders() });
     if (!res.ok) return [];
     const data = await res.json();
     return data.claims || [];
@@ -230,7 +229,7 @@ export async function updateClaim(
   try {
     const res = await fetch(`${API_BASE}/claims/${claimId}`, {
       method: "PUT",
-      headers: headers(),
+      headers: panelHeaders(),
       body: JSON.stringify({ status, note: note || null }),
     });
     return res.ok;
@@ -240,11 +239,11 @@ export async function updateClaim(
   }
 }
 
-// ── Admin: List all users ────────────────────────────────────
+// ── Admin: user management ──────────────────────────────────
 
 export async function fetchAdminUsers(): Promise<{ users: (UserProfile & { status?: string })[]; count: number } | null> {
   try {
-    const res = await fetch(`${API_BASE}/admin/users`, { headers: headers() });
+    const res = await fetch(`${API_BASE}/admin/users`, { headers: panelHeaders() });
     if (!res.ok) return null;
     return await res.json();
   } catch (err) {
@@ -257,7 +256,7 @@ export async function deleteUser(userId: number): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/admin/users/${userId}`, {
       method: "DELETE",
-      headers: headers(),
+      headers: panelHeaders(),
     });
     return res.ok;
   } catch (err) {
@@ -270,7 +269,7 @@ export async function updateUserStatus(userId: number, status: "active" | "pendi
   try {
     const res = await fetch(`${API_BASE}/admin/users/${userId}/status`, {
       method: "PUT",
-      headers: headers(),
+      headers: panelHeaders(),
       body: JSON.stringify({ status }),
     });
     return res.ok;
@@ -284,7 +283,7 @@ export async function resetAllTickets(): Promise<{ ok: boolean; resetCount?: num
   try {
     const res = await fetch(`${API_BASE}/admin/reset-tickets`, {
       method: "POST",
-      headers: headers(),
+      headers: panelHeaders(),
     });
     if (!res.ok) return { ok: false };
     return await res.json();
