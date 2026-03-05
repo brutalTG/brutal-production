@@ -173,7 +173,7 @@ function AuthGate({ onAuth }: { onAuth: () => void }) {
           )}
         </button>
 
-        <p className="text-[10px]" style={{ color: "var(--p-text-ghost)" }}>@BBBrutalbot</p>
+        <p className="text-[10px]" style={{ color: "var(--p-text-ghost)" }}>@BrutalDropBot</p>
       </form>
     </div>
   );
@@ -381,7 +381,7 @@ export default function PanelLayout() {
           {!sidebarCollapsed ? (
             <div className="flex items-center justify-between">
               <div className="text-[10px] font-['Fira_Code']" style={{ color: "var(--p-text-ghost)" }}>
-                <p>@BBBrutalbot</p>
+                <p>@BrutalDropBot</p>
                 <p className="mt-0.5">Panel v2.0</p>
               </div>
               <button
