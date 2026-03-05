@@ -626,7 +626,7 @@ export function ClosingStepView({
   positionBoost: number;
 }) {
   const [copied, setCopied] = useState(false);
-  const referralLink = `https://t.me/BBBrutalbot?startapp=ref_${referralCode}`;
+  const referralLink = `https://t.me/BrutalDropBot?startapp=ref_${referralCode}`;
   const whatsappMsg = `Metete en BRUTAL. Es una app donde respondes preguntas anonimas y cobras cash real. Usa mi link y salto la fila: ${referralLink}`;
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(whatsappMsg)}`;
 
