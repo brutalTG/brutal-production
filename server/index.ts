@@ -135,9 +135,15 @@ async function anonId(nodeId) {
 // ============================================================================
 
 function dbQuestionToPanel(row) {
+  // Reconstruct reward for data object
+  const reward = row.reward_cash > 0
+    ? { type: "coins", value: Number(row.reward_cash) }
+    : row.reward_tickets > 0
+      ? { type: "tickets", value: Number(row.reward_tickets) }
+      : undefined;
   return {
     id: row.question_id,
-    data: { type: row.type, ...(row.config || {}) },
+    data: { type: row.type, ...(row.config || {}), ...(reward ? { reward } : {}) },
     label: row.label || "",
     tags: row.tags || [],
     createdAt: row.created_at,
