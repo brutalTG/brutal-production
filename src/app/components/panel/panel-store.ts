@@ -350,7 +350,17 @@ export function exportDropJSON(drop: PanelDrop, allQuestions: PanelQuestion[]): 
     .filter((qId) => !disabled.has(qId))
     .map((qId) => questionsMap.get(qId))
     .filter((q): q is PanelQuestion => q !== undefined)
-    .map((q) => ({ ...q.data, questionId: q.id }));
+    .map((q) => {
+      // Build reward from top-level PanelQuestion fields (server format)
+      // or keep existing q.data.reward if present (local format)
+      const pq = q as any;
+      let reward = q.data.reward;
+      if (!reward) {
+        if (pq.reward_cash > 0) reward = { type: "coins" as const, value: Number(pq.reward_cash) };
+        else if (pq.reward_tickets > 0) reward = { type: "tickets" as const, value: Number(pq.reward_tickets) };
+      }
+      return { ...q.data, questionId: q.id, ...(reward ? { reward } : {}) };
+    });
 
   const result: Drop = {
     id: drop.dropId,
