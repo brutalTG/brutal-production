@@ -518,7 +518,7 @@ app.post("/sessions/complete", requireTelegram, async (c) => {
     .select("reward_type, reward_value, reward_granted").eq("session_id", session_id);
   const totalCash = rewards?.filter(r => r.reward_type === "cash" && r.reward_granted)
     .reduce((s, r) => s + (r.reward_value || 0), 0) || 0;
-  const totalTickets = rewards?.filter(r => r.reward_type === "tickets" && r.reward_granted)
+  const totalTickets = rewards?.filter(r => r.reward_type === "golden_ticket" && r.reward_granted)
     .reduce((s, r) => s + (r.reward_value || 0), 0) || 0;
   const { data: traps } = await db().from("responses")
     .select("question_type, raw_response").eq("session_id", session_id)
@@ -579,7 +579,7 @@ app.post("/responses", requireTelegram, async (c) => {
   let rewardType = null;
   let rewardValue = 0;
   if (rewardCash > 0) { rewardType = "cash"; rewardValue = rewardCash; }
-  else if (rewardTickets > 0) { rewardType = "golden_tickets"; rewardValue = rewardTickets; }
+  else if (rewardTickets > 0) { rewardType = "golden_ticket"; rewardValue = rewardTickets; }
   const { data: sess } = await db().from("sessions")
     .select("multiplier").eq("session_id", session_id).single();
   const multiplier = sess?.multiplier || 1;
@@ -1953,7 +1953,7 @@ app.post("/bot/webhook", async (c) => {
           choice_index: choiceIndex,
           raw_response: { callback_data: data, bot_question_id: botQuestionId },
           source: "bot",
-          reward_type: q.reward_cash > 0 ? "cash" : q.reward_tickets > 0 ? "tickets" : null,
+          reward_type: q.reward_cash > 0 ? "cash" : q.reward_tickets > 0 ? "golden_ticket" : null,
           reward_value: q.reward_cash || q.reward_tickets || 0,
           reward_granted: true,
         });
