@@ -169,6 +169,16 @@ export function deleteQuestion(id: string): boolean {
   if (filtered.length === questions.length) return false;
   saveQuestionsLocal(filtered);
 
+  // Also remove from any drop's questionIds
+  const drops = getDrops();
+  let dropsChanged = false;
+  for (const drop of drops) {
+    const before = drop.questionIds.length;
+    drop.questionIds = drop.questionIds.filter((qId) => qId !== id);
+    if (drop.questionIds.length < before) dropsChanged = true;
+  }
+  if (dropsChanged) saveDropsLocal(drops);
+
   // Sync to server
   syncQuestionDelete(id).catch((err) => {
     console.warn("[Store] syncQuestionDelete failed:", err);
