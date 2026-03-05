@@ -1452,9 +1452,10 @@ app.put("/admin/drops/:id", requirePanel, async (c) => {
   const { data, error } = await db().from("drops").update({
     name: body.name, config: body.config,
     segment_ids: body.segment_ids || body.segmentIds, updated_at: new Date().toISOString(),
-  }).eq("drop_id", c.req.param("id")).select().single();
+  }).eq("drop_id", c.req.param("id")).select();
   if (error) return c.json({ error: error.message }, 500);
-  return c.json(dbDropToPanel(data));
+  if (!data || data.length === 0) return c.json({ error: "Drop not found" }, 404);
+  return c.json(dbDropToPanel(data[0]));
 });
 
 app.delete("/admin/drops/:id", requirePanel, async (c) => {
@@ -1535,13 +1536,18 @@ app.put("/admin/questions/:id", requirePanel, async (c) => {
     signal_pair_id: body.signal_pair_id,
     signal_pair_role: body.signal_pair_role,
     trap_correct_option: body.trap_correct_option,
-  }).eq("question_id", c.req.param("id")).select().single();
+  }).eq("question_id", c.req.param("id")).select();
   if (error) return c.json({ error: error.message }, 500);
-  return c.json(dbQuestionToPanel(data));
+  if (!data || data.length === 0) return c.json({ error: "Question not found" }, 404);
+  return c.json(dbQuestionToPanel(data[0]));
 });
 
 app.delete("/admin/questions/:id", requirePanel, async (c) => {
-  await db().from("questions").delete().eq("question_id", c.req.param("id"));
+  const qid = c.req.param("id");
+  // Remove linkages first (also handled by CASCADE but explicit is safer)
+  await db().from("drop_questions").delete().eq("question_id", qid);
+  const { error } = await db().from("questions").delete().eq("question_id", qid);
+  if (error) return c.json({ error: error.message }, 500);
   return c.json({ ok: true });
 });
 
