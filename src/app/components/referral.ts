@@ -47,7 +47,7 @@ export function detectReferral(): ReferralData {
   return data;
 }
 
-const BOT_USERNAME = "BBBrutalbot";
+const BOT_USERNAME = "BrutalDropBot";
 
 /**
  * Get the referral link for the current user.
