@@ -579,7 +579,7 @@ app.post("/responses", requireTelegram, async (c) => {
   let rewardType = null;
   let rewardValue = 0;
   if (rewardCash > 0) { rewardType = "cash"; rewardValue = rewardCash; }
-  else if (rewardTickets > 0) { rewardType = "tickets"; rewardValue = rewardTickets; }
+  else if (rewardTickets > 0) { rewardType = "golden_tickets"; rewardValue = rewardTickets; }
   const { data: sess } = await db().from("sessions")
     .select("multiplier").eq("session_id", session_id).single();
   const multiplier = sess?.multiplier || 1;
