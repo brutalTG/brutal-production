@@ -135,7 +135,7 @@ function drawShareCard(
   // Bottom CTA
   ctx.fillStyle = "rgba(255,255,255,0.3)";
   ctx.font = "13px 'Fira Code', monospace";
-  const ctaText = "Descubrí tu señal → t.me/BBBrutalbot";
+  const ctaText = "Descubrí tu señal → t.me/BrutalDropBot";
   const ctaW = ctx.measureText(ctaText).width;
   ctx.fillText(ctaText, (W - ctaW) / 2, H - 60);
 
