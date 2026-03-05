@@ -598,7 +598,7 @@ app.post("/responses", requireTelegram, async (c) => {
     latency_ms: latency_ms || null, reward_type: rewardType,
     reward_value: finalRewardValue, reward_granted: rewardGranted,
     multiplier_at_time: multiplier, season_id: seasonId,
-    source: source || "drop",
+    source: "drop",
   }).select("response_id").single();
   if (error) return c.json({ error: error.message }, 500);
   if (rewardGranted && finalRewardValue > 0 && rewardType) {
