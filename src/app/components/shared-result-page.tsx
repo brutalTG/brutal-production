@@ -77,7 +77,7 @@ export function buildShareUrl(data: {
 }
 
 // External landing URL — replace with actual onboarding URL
-const ONBOARDING_URL = "https://t.me/BBBrutalbot";
+const ONBOARDING_URL = "https://t.me/BrutalDropBot";
 
 export function SharedResultPage({ data }: { data: SharedResultData }) {
   const [cta] = useState(pickCTA);
