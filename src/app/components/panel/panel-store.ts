@@ -93,6 +93,7 @@ function toServerQuestion(q: PanelQuestion) {
 
 function toServerDrop(d: PanelDrop) {
   return {
+    drop_id: d.dropId,
     name: d.name,
     config: {
       dropId: d.dropId,
@@ -253,8 +254,8 @@ export function updateDrop(id: string, updates: Partial<PanelDrop>): PanelDrop |
   drops[idx] = { ...drops[idx], ...updates, updatedAt: now() };
   saveDropsLocal(drops);
 
-  // Sync to server
-  syncDropUpdate(id, toServerDrop(drops[idx]) as any).catch((err) => {
+  // Sync to server — use dropId (DB key), not panel id
+  syncDropUpdate(drops[idx].dropId, toServerDrop(drops[idx]) as any).catch((err) => {
     console.warn("[Store] syncDropUpdate failed:", err);
   });
 
@@ -339,7 +340,7 @@ export function exportDropJSON(drop: PanelDrop, allQuestions: PanelQuestion[]): 
     .filter((qId) => !disabled.has(qId))
     .map((qId) => questionsMap.get(qId))
     .filter((q): q is PanelQuestion => q !== undefined)
-    .map((q) => q.data);
+    .map((q) => ({ ...q.data, questionId: q.id }));
 
   const result: Drop = {
     id: drop.dropId,
