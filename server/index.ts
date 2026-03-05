@@ -587,7 +587,7 @@ app.post("/responses", requireTelegram, async (c) => {
   const { data: activeSeason } = await db().from("seasons")
     .select("season_id").eq("is_active", true).limit(1).single();
   const seasonId = activeSeason?.season_id || null;
-  const finalRewardValue = rewardGranted ? Math.round(rewardValue * multiplier) : 0;
+  const finalRewardValue = rewardGranted ? (rewardType === "cash" ? Number((rewardValue * multiplier).toFixed(4)) : Math.round(rewardValue * multiplier)) : 0;
   const { data: resp, error } = await db().from("responses").insert({
     node_id: node.node_id, anonymous_id, session_id, drop_id: drop_id || null,
     question_id, position_in_drop: position_in_drop ?? null,
