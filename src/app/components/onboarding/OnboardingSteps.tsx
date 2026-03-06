@@ -59,11 +59,14 @@ export function IntroStepView({ step, onNext }: { step: IntroStep; onNext: () =>
 // ── PHONE INPUT ─────────────────────────────────────────────
 
 export function PhoneStepView({ step, onNext }: { step: PhoneStep; onNext: (val: string) => void }) {
+  const [showManual, setShowManual] = useState(false);
   const [phone, setPhone] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const isValid = phone.replace(/\D/g, "").length >= 8;
 
-  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 400); }, []);
+  useEffect(() => { 
+    if (showManual) setTimeout(() => inputRef.current?.focus(), 400); 
+  }, [showManual]);
 
   const handleSubmit = () => {
     if (!isValid) return;
@@ -71,6 +74,43 @@ export function PhoneStepView({ step, onNext }: { step: PhoneStep; onNext: (val:
     resetViewport();
     setTimeout(() => onNext(`+54${phone.replace(/\D/g, "")}`), 150);
   };
+
+  const handleTelegramContact = () => {
+    // Cast a any para bypassear tipado estricto en TS sin meter imports raros
+    const tg = (window as any).Telegram?.WebApp;
+    if (tg?.requestContact) {
+      tg.requestContact((shared: boolean) => {
+        if (shared) {
+          resetViewport();
+          setTimeout(() => onNext("telegram_verified"), 150);
+        } else {
+          setShowManual(true);
+        }
+      });
+    } else {
+      setShowManual(true);
+    }
+  };
+
+  if (!showManual) {
+    return (
+      <div className="flex flex-col flex-1">
+        <DuotoneCard hint="FASE A · 1/6">
+          <CardTitle size="md">{step.copy}</CardTitle>
+          <div className="w-full mb-4 flex flex-col gap-3">
+            <ActionButton label="Continuar con Telegram" onClick={handleTelegramContact} />
+            <button
+              onClick={() => setShowManual(true)}
+              className="text-[12px] opacity-60 font-['Fira_Code'] underline mt-2 text-center transition-opacity hover:opacity-100"
+              style={{ color: "var(--dynamic-fg, #fff)" }}
+            >
+              Ingresar número manualmente
+            </button>
+          </div>
+        </DuotoneCard>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col flex-1">
@@ -101,7 +141,6 @@ export function PhoneStepView({ step, onNext }: { step: PhoneStep; onNext: (val:
     </div>
   );
 }
-
 // ── TEXT INPUT ───────────────────────────────────────────────
 
 export function TextInputStepView({ step, hint, onNext }: { step: TextInputStep; hint: string; onNext: (val: string) => void }) {
