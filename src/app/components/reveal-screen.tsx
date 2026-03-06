@@ -19,12 +19,10 @@ interface RevealScreenProps {
   onClaim: () => void;
   /** Async function that claims rewards on the server — called before animation */
   onClaimRewards: () => Promise<boolean>;
+  /** Called when user taps "Cerrar" — notifies server and closes Mini App */
+  onNotifyAndClose: () => void;
   /** Optional share card component rendered between metrics and bottom */
   shareCard?: React.ReactNode;
-  /** Navigate to profile screen */
-  onProfile?: () => void;
-  /** Navigate to leaderboard screen */
-  onLeaderboard?: () => void;
 }
 
 // Coin icon SVG (from Figma)
@@ -65,9 +63,8 @@ export function RevealScreen({
   multiplier,
   onClaim,
   onClaimRewards,
+  onNotifyAndClose,
   shareCard,
-  onProfile,
-  onLeaderboard,
 }: RevealScreenProps) {
   const [claimPhase, setClaimPhase] = useState<"idle" | "claiming" | "multiplying" | "done">("idle");
   const [displayTickets, setDisplayTickets] = useState(tickets);
@@ -120,21 +117,11 @@ export function RevealScreen({
         clearInterval(interval);
         hapticSuccess();
         setClaimPhase("done");
-        // No auto-close — user taps "Reclamado" to close
       }
     }, 16);
 
     return () => clearInterval(interval);
-  }, [claimPhase, tickets, finalTickets, onClaim]);
-
-  // Auto-close Mini App 1.5s after claim is done
-  useEffect(() => {
-    if (claimPhase !== "done") return;
-    const timer = setTimeout(() => {
-      onClaim();
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, [claimPhase, onClaim]);
+  }, [claimPhase, tickets, finalTickets]);
 
   const handleClaim = async () => {
     if (claimPhase !== "idle") return;
@@ -386,17 +373,18 @@ export function RevealScreen({
             </div>
           </div>
 
-          {/* Claim button / Done state */}
+          {/* Claim button → Cerrar button flow */}
           {claimPhase === "done" ? (
             <div className="flex flex-col items-center gap-3 w-full max-w-[290px]">
-              <div
-                className="w-full h-[60px] rounded-full flex items-center justify-center"
-                style={{ backgroundColor: "var(--dynamic-bg, #000)", animation: "reveal-checkmark 400ms ease-out forwards" }}
+              <button
+                onClick={onNotifyAndClose}
+                className="w-full h-[60px] rounded-full flex items-center justify-center select-none active:scale-[0.98] transition-all duration-150"
+                style={{ backgroundColor: "var(--dynamic-bg, #000)" }}
               >
                 <span className="font-['Roboto'] font-semibold text-[21px]" style={{ color: "var(--dynamic-fg, #fff)" }}>
-                  ✓ Reclamado
+                  Cerrar
                 </span>
-              </div>
+              </button>
             </div>
           ) : (
             <div className="flex flex-col items-center gap-2 w-full max-w-[290px]">

@@ -1,12 +1,14 @@
 // ============================================================
 // SESSION UPLOADER — Per-card upload lifecycle to Hono server
 // ============================================================
-// Architecture (3-call lifecycle):
+// Architecture (3-call lifecycle + notify):
 //   1. serverStartSession(dropId) → POST /sessions/start → session_id
 //   2. uploadResponse(question, index, answer, dropId) → POST /responses (per-card, immediate)
 //   3. completeSession({ archetype_result, bic_scores }) → POST /sessions/complete
+//   4. notifyDropComplete({ total_cash, total_tickets, multiplier }) → POST /sessions/notify
+//      (called when user taps "Cerrar" after claim animation — triggers bot message)
 //
-// All three endpoints require X-Telegram-Init-Data header.
+// All endpoints require X-Telegram-Init-Data header.
 // Fire-and-forget: errors are swallowed and never block the Drop UI.
 // Offline queue: responses accumulate in memory when offline, flushed on reconnect.
 // ============================================================
@@ -50,7 +52,7 @@ function authHeaders(): Record<string, string> {
 
 /**
  * Fetch with retry — 3 attempts, exponential backoff (1s, 2s, 4s).
- * Only retries 5xx errors. 4xx are considered permanent failures.
+ * Only retries 5xx errors. 4xx are considered permanent failure.
  */
 async function fetchWithRetry(
   url: string,
@@ -276,6 +278,49 @@ export async function completeSession(params: {
 
   _completionPromise = doComplete();
   return _completionPromise;
+}
+
+// ============================================================
+// Lifecycle: 4. Notify Drop Complete (triggers bot message)
+// ============================================================
+
+/**
+ * Notify the server that the user has claimed rewards and is closing.
+ * This triggers the bot message in the user's Telegram chat.
+ * Fire-and-forget — errors don't block the UI from closing.
+ */
+export async function notifyDropComplete(params: {
+  session_id?: string;
+  total_cash: number;
+  total_tickets: number;
+  multiplier: number;
+}): Promise<boolean> {
+  const sessionId = params.session_id || _sessionId;
+  if (!sessionId) {
+    console.warn("[BRUTAL] notifyDropComplete called without session_id");
+    return false;
+  }
+
+  try {
+    const res = await fetchWithRetry("/sessions/notify", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        session_id: sessionId,
+        total_cash: params.total_cash,
+        total_tickets: params.total_tickets,
+        multiplier: params.multiplier,
+      }),
+    });
+
+    if (!res) return false;
+    const data = await res.json().catch(() => ({}));
+    console.log("[BRUTAL] Drop notify sent:", data);
+    return true;
+  } catch (err) {
+    console.error("[BRUTAL] notifyDropComplete error:", err);
+    return false;
+  }
 }
 
 // ============================================================

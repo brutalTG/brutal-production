@@ -37,7 +37,7 @@ import { getNextDuotonePair } from "./color-generator";
 import { startSession as signalStartSession, finalizeSession, exportSessionJSON, updateCurrentPosition } from "./signal-store";
 import { computeDimensionsWithOptions, pickArchetype } from "./archetype-engine";
 import { getReferralLink, detectReferral } from "./referral";
-import { serverStartSession, uploadResponse, completeSession, uploadSession, waitForUpload, claimRewards } from "./session-uploader";
+import { serverStartSession, uploadResponse, completeSession, uploadSession, waitForUpload, claimRewards, notifyDropComplete } from "./session-uploader";
 import { CURRENT_DROP } from "./sample-drop";
 import { fetchActiveDrop, fetchPreviewDrop } from "./drop-api";
 
@@ -504,7 +504,7 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
         uploadSession(session);
       }
 
-      // Complete server session
+      // Complete server session (calculates totals, updates profile — NO bot message)
       completeSession({
         archetype_result: archetypeData,
         bic_scores: session?.signalPairs || null,
@@ -550,8 +550,15 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
             return false;
           }
         }}
-        onProfile={tgUserId ? () => setScreen("profile") : undefined}
-        onLeaderboard={() => setScreen("leaderboard")}
+        onNotifyAndClose={async () => {
+          // Fire notify (triggers bot message with final rewards), then close
+          notifyDropComplete({
+            total_cash: coins,
+            total_tickets: finalTickets,
+            multiplier: currentMultiplier,
+          });
+          closeMiniApp();
+        }}
         shareCard={
           <ShareCard
             title={revealTitle}
@@ -568,11 +575,11 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
 
   if (screen === "profile") {
     const tgUserId = getTelegramUserId();
-    if (!tgUserId) { setScreen(sessionFinalizedRef.current ? "reveal" : "splash"); return null; }
+    if (!tgUserId) { setScreen("splash"); return null; }
     return (
       <ProfileScreen
         telegramUserId={tgUserId}
-        onBack={() => setScreen(sessionFinalizedRef.current ? "reveal" : "splash")}
+        onBack={() => setScreen("splash")}
         onLeaderboard={() => setScreen("leaderboard")}
       />
     );
@@ -582,7 +589,7 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
     return (
       <LeaderboardScreen
         telegramUserId={getTelegramUserId()}
-        onBack={() => setScreen(sessionFinalizedRef.current ? "reveal" : "splash")}
+        onBack={() => setScreen("splash")}
         onProfile={() => setScreen("profile")}
       />
     );
