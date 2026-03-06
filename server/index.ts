@@ -1851,7 +1851,7 @@ app.post("/bot/webhook", async (c) => {
     });
     return c.json({ ok: true });
   }
-  
+
   if (update.message?.text?.startsWith("/drop")) {
     const chatId = update.message.chat.id;
     const userId = update.message.from.id;
@@ -2009,7 +2009,6 @@ app.post("/bot/webhook", async (c) => {
   }
   return c.json({ ok: true });
 });
-
 app.post("/bot/send-message", requirePanel, async (c) => {
   const { chat_id, text, parse_mode } = await c.req.json();
   if (!chat_id || !text) return c.json({ error: "chat_id and text required" }, 400);
