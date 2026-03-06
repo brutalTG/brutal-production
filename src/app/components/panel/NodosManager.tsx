@@ -17,7 +17,7 @@ const headers = () => ({
 
 // ── Types ────────────────────────────────────────────────────
 
-type NodoStatus = "pending" | "active" | "blocked";
+type NodoStatus = "incomplete" | "pending" | "active" | "blocked";
 
 interface Nodo {
   applicationId: string;
@@ -860,7 +860,7 @@ export function NodosManager() {
               <div className="flex flex-wrap gap-2">
                 <FilterChipMulti
                   label="Estado"
-                  options={["pending", "active", "blocked"]}
+                  options={["incomplete", "pending", "active", "blocked"]}
                   selected={filters.status || []}
                   onChange={(vals) => setFilters((f) => ({ ...f, status: vals.length ? vals as NodoStatus[] : undefined }))}
                 />
