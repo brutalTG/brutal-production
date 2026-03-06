@@ -66,22 +66,6 @@ function BrutalLogoSmall() {
   );
 }
 
-// ── Step hint builder ───────────────────────────────────────
-
-function getStepHint(step: OnboardingStep): string {
-  if (step.phase === "A") {
-    const phaseASteps = ONBOARDING_STEPS.filter((s) => s.phase === "A");
-    const posInPhase = phaseASteps.indexOf(step) + 1;
-    return `FASE A · ${posInPhase}/${phaseASteps.length}`;
-  }
-  if (step.phase === "compass") {
-    const compassSteps = ONBOARDING_STEPS.filter((s) => s.phase === "compass");
-    const posInPhase = compassSteps.indexOf(step) + 1;
-    return `COMPASS · ${posInPhase}/${compassSteps.length}`;
-  }
-  return "";
-}
-
 // ── Main Component ──────────────────────────────────────────
 
 export default function OnboardingApp() {
@@ -302,8 +286,6 @@ export default function OnboardingApp() {
   // ── Render ────────────────────────────────────────────────
 
   const renderStep = () => {
-    const hint = getStepHint(currentStep);
-
     switch (currentStep.type) {
       case "intro":
         return <IntroStepView step={currentStep} onNext={advanceNoValue} />;
@@ -312,32 +294,31 @@ export default function OnboardingApp() {
         return <PhoneStepView step={currentStep} onNext={(val) => advance("phone", val)} />;
 
       case "text_input":
-        return <TextInputStepView step={currentStep} hint={hint} onNext={(val) => advance(currentStep.id, val)} />;
+        return <TextInputStepView step={currentStep} onNext={(val) => advance(currentStep.id, val)} />;
 
       case "age_selector":
         return (
           <AgeSelectorStepView
             step={currentStep}
-            hint={hint}
             onNext={(val) => advance("age", val)}
             onReject={(msg) => setAgeRejected(msg)}
           />
         );
 
       case "single_choice":
-        return <SingleChoiceStepView step={currentStep} hint={hint} onNext={(val) => advance(currentStep.id, val)} />;
+        return <SingleChoiceStepView step={currentStep} onNext={(val) => advance(currentStep.id, val)} />;
 
       case "nested_choice":
-        return <NestedChoiceStepView step={currentStep} hint={hint} onNext={(val) => advance(currentStep.id, val)} />;
+        return <NestedChoiceStepView step={currentStep} onNext={(val) => advance(currentStep.id, val)} />;
 
       case "multi_select":
-        return <MultiSelectStepView step={currentStep} hint={hint} onNext={(val) => advance(currentStep.id, val)} />;
+        return <MultiSelectStepView step={currentStep} onNext={(val) => advance(currentStep.id, val)} />;
 
       case "scale":
-        return <ScaleStepView step={currentStep} hint={hint} onNext={(val) => advance(currentStep.id, val)} />;
+        return <ScaleStepView step={currentStep} onNext={(val) => advance(currentStep.id, val)} />;
 
       case "free_text":
-        return <FreeTextStepView step={currentStep} hint={hint} onNext={(val) => advance(currentStep.id, val)} />;
+        return <FreeTextStepView step={currentStep} onNext={(val) => advance(currentStep.id, val)} />;
 
       case "transition":
         return <TransitionStepView step={currentStep} onNext={advanceNoValue} />;
@@ -422,7 +403,7 @@ export default function OnboardingApp() {
   // Steps that use full-bleed layout (no progress bar / header)
   const isFullBleed = currentStep.type === "intro" || currentStep.type === "transition"
     || currentStep.type === "closing" || currentStep.type === "compass_rafaga"
-    || currentStep.type === "compass_reveal";
+    || currentStep.type === "compass_reveal" || currentStep.type === "multiplier_handles"; // Añadido multiplier_handles para mantener el diseño limpio de Figma Make
 
   return (
     <div
