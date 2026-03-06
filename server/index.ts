@@ -857,12 +857,14 @@ app.post("/apply", async (c) => {
     );
   }
 
+  // Count pending nodes for queue position (always, so frontend can display it)
+  const { count: pendingCount } = await db()
+    .from("nodes").select("*", { count: "exact", head: true })
+    .in("status", ["pending", "active"]);
+  const queuePosition = pendingCount || 1;
+
   // Send welcome message via bot after registration
   if (telegramUserId && botToken()) {
-    const { count } = await db()
-      .from("nodes").select("*", { count: "exact", head: true })
-      .in("status", ["pending", "active"]);
-    const position = count || 1;
     try {
       await fetch(`https://api.telegram.org/bot${botToken()}/sendMessage`, {
         method: "POST",
@@ -870,7 +872,7 @@ app.post("/apply", async (c) => {
         body: JSON.stringify({
           chat_id: telegramUserId,
           text: `✅ <b>Registro completo</b>\n\n` +
-            `Tu posición en la fila: <b>#${position}</b>\n\n` +
+            `Tu posición en la fila: <b>#${queuePosition}</b>\n\n` +
             `Activá las notificaciones 🔔 que te vamos a avisar por acá cuando estés dentro y tengas un Drop activo para jugar.\n\n` +
             `Tu link de invitación: <b>t.me/BrutalDropBot?start=${newNode.referral_code}</b>\nCompartilo con amigos para subir en la fila.`,
           parse_mode: "HTML",
@@ -880,7 +882,7 @@ app.post("/apply", async (c) => {
       console.error("[BOT] Post-registration message failed:", e);
     }
   }
-  return c.json({ ok: true, applicationId: newNode.node_id, referralCode: newNode.referral_code }, 201);
+  return c.json({ ok: true, applicationId: newNode.node_id, referralCode: newNode.referral_code, queuePosition }, 201);
 });
 
 app.get("/apply/check", async (c) => {
