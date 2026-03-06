@@ -569,6 +569,11 @@ app.post("/sessions/complete", requireTelegram, async (c) => {
   }).eq("session_id", session_id).eq("node_id", node.node_id);
   if (error) return c.json({ error: error.message }, 500);
 
+  // Check if session was already completed before this call (idempotency guard)
+  const { data: sessionBefore } = await db().from("sessions")
+    .select("status").eq("session_id", session_id).single();
+  const alreadyCompleted = sessionBefore?.status === "completed";
+
   // Update profile with multiplied totals
   const { data: prof } = await db().from("profiles")
     .select("drops_completed, cash_balance, cash_lifetime, tickets_current, tickets_lifetime")
@@ -578,7 +583,8 @@ app.post("/sessions/complete", requireTelegram, async (c) => {
     const cashBonus = totalCash - baseCash;
     const ticketBonus = totalTickets - baseTickets;
     await db().from("profiles").update({
-      drops_completed: (prof.drops_completed || 0) + 1,
+      // Only increment drops_completed if this is the first time completing
+      ...(alreadyCompleted ? {} : { drops_completed: (prof.drops_completed || 0) + 1 }),
       last_drop_at: new Date().toISOString(),
       // Add multiplier bonus to profile (base rewards already added per-response)
       cash_balance: Number(prof.cash_balance || 0) + cashBonus,
@@ -1124,7 +1130,7 @@ app.put("/apply/:nodeId/complete", async (c) => {
           text: `✅ <b>Registro completo</b>\n\n` +
             `Tu posición en la fila: <b>#${position}</b>\n\n` +
             `Activá las notificaciones 🔔 que te vamos a avisar por acá cuando estés dentro y tengas un Drop activo para jugar.\n\n` +
-            `Código de referido: <code>${updated?.referral_code || ""}</code>\nCompartilo con amigos para subir en la fila.`,
+            `Tu link de invitación: <b>t.me/BrutalDropBot?start=${updated?.referral_code || ""}</b>\nCompartilo con amigos para subir en la fila.`,
           parse_mode: "HTML",
         }),
       });
