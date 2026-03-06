@@ -353,7 +353,7 @@ function TypeSpecificFields({
       return (
         <>
           <TextField label="Pregunta" value={d.text} onChange={(v) => onChange({ text: v } as any)} placeholder="Texto de la pregunta" multiline />
-          <StringListField label="Opciones" values={d.options} onChange={(v) => onChange({ options: v } as any)} min={2} max={6} />
+          <StringListField label="Opciones" values={d.options || []} onChange={(v) => onChange({ options: v } as any)} min={2} max={6} />
         </>
       );
 
@@ -361,7 +361,7 @@ function TypeSpecificFields({
       return (
         <>
           <TextField label="Pregunta" value={d.text} onChange={(v) => onChange({ text: v } as any)} placeholder="Texto (puede quedar vacío)" multiline />
-          <StringListField label="Opciones emoji" values={d.options} onChange={(v) => onChange({ options: v } as any)} min={2} max={3} placeholder="Emoji" />
+          <StringListField label="Opciones emoji" values={d.options || []} onChange={(v) => onChange({ options: v } as any)} min={2} max={3} placeholder="Emoji" />
         </>
       );
 
@@ -424,7 +424,7 @@ function TypeSpecificFields({
       return (
         <>
           <TextField label="Pregunta" value={d.text} onChange={(v) => onChange({ text: v } as any)} multiline />
-          <StringListField label="Items a ordenar" values={d.options} onChange={(v) => onChange({ options: v } as any)} min={3} max={5} />
+          <StringListField label="Items a ordenar" values={d.options || []} onChange={(v) => onChange({ options: v } as any)} min={3} max={5} />
         </>
       );
 
@@ -444,7 +444,7 @@ function TypeSpecificFields({
       return (
         <>
           <TextField label="Statement" value={d.text} onChange={(v) => onChange({ text: v } as any)} multiline placeholder="El hot take que se muestra con typewriter" />
-          <StringListField label="Opciones de reacción" values={d.options} onChange={(v) => onChange({ options: v } as any)} min={2} max={4} />
+          <StringListField label="Opciones de reacción" values={d.options || []} onChange={(v) => onChange({ options: v } as any)} min={2} max={4} />
         </>
       );
 
@@ -452,7 +452,7 @@ function TypeSpecificFields({
       return (
         <>
           <TextField label="Pregunta" value={d.text} onChange={(v) => onChange({ text: v } as any)} multiline />
-          <StringListField label="Opciones" values={d.options} onChange={(v) => onChange({ options: v } as any)} min={2} max={4} />
+          <StringListField label="Opciones" values={d.options || []} onChange={(v) => onChange({ options: v } as any)} min={2} max={4} />
           <NumberField label="Índice correcto (0-based)" value={d.correctIndex} onChange={(v) => onChange({ correctIndex: v } as any)} min={0} max={3} />
           <NumberField label="Penalidad (tickets)" value={d.penalty} onChange={(v) => onChange({ penalty: v } as any)} min={0} />
         </>
@@ -462,7 +462,7 @@ function TypeSpecificFields({
       return (
         <>
           <TextField label="Pregunta (parece choice normal)" value={d.text} onChange={(v) => onChange({ text: v } as any)} multiline />
-          <StringListField label="Opciones" values={d.options} onChange={(v) => onChange({ options: v } as any)} min={2} max={4} />
+          <StringListField label="Opciones" values={d.options || []} onChange={(v) => onChange({ options: v } as any)} min={2} max={4} />
           <NumberField label="Índice correcto (0-based)" value={d.correctIndex} onChange={(v) => onChange({ correctIndex: v } as any)} min={0} max={3} />
           <NumberField label="Penalidad silenciosa (tickets)" value={d.penalty} onChange={(v) => onChange({ penalty: v } as any)} min={0} />
         </>
@@ -472,8 +472,8 @@ function TypeSpecificFields({
       return (
         <>
           <TextField label="Primera línea (Silkscreen)" value={d.firstLine} onChange={(v) => onChange({ firstLine: v } as any)} mono />
-          <StringListField label="Líneas de código (Fira Code)" values={d.codeLines} onChange={(v) => onChange({ codeLines: v } as any)} min={1} placeholder="Línea de código" />
-          <StringListField label="Últimas líneas (Silkscreen)" values={d.lastLines} onChange={(v) => onChange({ lastLines: v } as any)} min={1} placeholder="Línea final" />
+          <StringListField label="Líneas de código (Fira Code)" values={d.codeLines || []} onChange={(v) => onChange({ codeLines: v } as any)} min={1} placeholder="Línea de código" />
+          <StringListField label="Últimas líneas (Silkscreen)" values={d.lastLines || []} onChange={(v) => onChange({ lastLines: v } as any)} min={1} placeholder="Línea final" />
         </>
       );
 
@@ -483,7 +483,7 @@ function TypeSpecificFields({
           <TextField label="Prompt" value={d.prompt} onChange={(v) => onChange({ prompt: v } as any)} />
           <TextField label="Prompt bold" value={d.promptBold} onChange={(v) => onChange({ promptBold: v } as any)} />
           <NumberField label="Segundos por item" value={d.secondsPerItem ?? 3} onChange={(v) => onChange({ secondsPerItem: v } as any)} min={1} max={10} suffix="seg" />
-          <RafagaItemsField items={d.items} onChange={(v) => onChange({ items: v } as any)} />
+          <RafagaItemsField items={d.items || []} onChange={(v) => onChange({ items: v } as any)} />
         </>
       );
 
@@ -493,7 +493,7 @@ function TypeSpecificFields({
           <TextField label="Prompt" value={d.prompt ?? ""} onChange={(v) => onChange({ prompt: v } as any)} />
           <TextField label="Prompt bold" value={d.promptBold} onChange={(v) => onChange({ promptBold: v } as any)} />
           <NumberField label="Segundos por item" value={d.secondsPerItem ?? 3} onChange={(v) => onChange({ secondsPerItem: v } as any)} min={1} max={10} suffix="seg" />
-          <RafagaItemsField items={d.items} onChange={(v) => onChange({ items: v } as any)} emojiMode />
+          <RafagaItemsField items={d.items || []} onChange={(v) => onChange({ items: v } as any)} emojiMode />
         </>
       );
 
@@ -567,12 +567,15 @@ function MetaFields({
 
   const currentSegmentIds = (data as any).segmentIds || [];
 
+  // FIXED TAREA 3: Corregido el bug de selección múltiple
   const toggleSegment = (id: string) => {
-    const current = new Set(currentSegmentIds);
-    if (current.has(id)) current.delete(id);
-    else current.add(id);
-    const arr = Array.from(current);
-    onChange({ segmentIds: arr.length > 0 ? arr : undefined } as any);
+    let nextArr: string[];
+    if (currentSegmentIds.includes(id)) {
+      nextArr = currentSegmentIds.filter((sid: string) => sid !== id);
+    } else {
+      nextArr = [...currentSegmentIds, id];
+    }
+    onChange({ segmentIds: nextArr.length > 0 ? nextArr : undefined } as any);
   };
 
   const sectionBorder: React.CSSProperties = { borderBottom: "1px solid var(--p-border-subtle)" };
@@ -655,7 +658,6 @@ function MetaFields({
         </div>
       )}
 
-      {/* Segment targeting */}
       <div className="pb-3 mb-1 mt-2" style={sectionBorder}>
         <span className="text-xs font-medium uppercase tracking-wider flex items-center gap-1.5" style={sectionLabel}>
           🎯 Segmento
@@ -673,6 +675,7 @@ function MetaFields({
             return (
               <button
                 key={seg.segmentId}
+                type="button"
                 onClick={() => toggleSegment(seg.segmentId)}
                 className={`flex items-center gap-2 px-3 py-2 rounded-lg text-left text-sm transition-colors ${
                   isSelected
@@ -700,8 +703,9 @@ function MetaFields({
       )}
       {currentSegmentIds.length > 0 && (
         <button
+          type="button"
           onClick={() => onChange({ segmentIds: undefined } as any)}
-          className="text-[10px] transition-colors"
+          className="text-[10px] transition-colors text-left"
           style={{ color: "var(--p-text-faint)" }}
           onMouseEnter={(e) => { e.currentTarget.style.color = "var(--p-danger)"; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = "var(--p-text-faint)"; }}
