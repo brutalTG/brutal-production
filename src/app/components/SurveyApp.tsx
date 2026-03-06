@@ -283,8 +283,15 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
   );
   const questionOptionsMap = useMemo(() => buildQuestionOptionsMap(questions), [questions]);
 
+  // --- Deep-link screen routing (e.g. bot inline buttons: ?screen=profile) ---
+  const initialScreen = useMemo<ScreenType>(() => {
+    const s = new URLSearchParams(window.location.search).get("screen");
+    if (s === "profile" || s === "leaderboard") return s;
+    return "splash";
+  }, []);
+
   // --- Core state ---
-  const [screen, setScreen] = useState<ScreenType>("splash");
+  const [screen, setScreen] = useState<ScreenType>(initialScreen);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [interstitialMessage, setInterstitialMessage] = useState(drop.timeoutMessage || "Brutal eligio por vos.");
   const [resultConfig, setResultConfig] = useState<{ percentage: number; text: string }>({ percentage: 50, text: "" });
