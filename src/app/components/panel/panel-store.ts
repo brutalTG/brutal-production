@@ -1,7 +1,7 @@
 // ============================================================
 // PANEL STORE — State management for Drop Builder admin panel
 // ============================================================
-// localStorage = fuente de verdad para la UI (sin cambios en componentes)
+// localStorage = fuente de verdad para la UI
 // Cada operación CRUD también escribe al server Hono via panel-sync
 // ============================================================
 
@@ -76,18 +76,20 @@ function now(): string {
 }
 
 // --- Schema mapping: PanelQuestion → server format ---
-// El server guarda questions con { type, config, label, tags, reward_cash, reward_tickets }
-// El store las guarda con { id, data: Question, label, tags }
-// "data" es el objeto Question completo — el server lo recibe como "config"
 
 function toServerQuestion(q: PanelQuestion) {
+  // Extraemos los rewards del objeto data para enviarlos como columnas de primer nivel
+  const rewardCash = q.data.reward?.type === "coins" ? (q.data.reward.value || 0) : 0;
+  const rewardTickets = q.data.reward?.type === "tickets" ? (q.data.reward.value || 0) : 0;
+
   return {
+    question_id: q.id, // Pasamos el ID del panel como question_id para el upsert
     type: q.data.type,
-    config: q.data,
+    config: q.data, // Aquí viajan los segmentIds y toda la data de la pregunta
     label: q.label,
     tags: q.tags,
-    reward_cash: 0,
-    reward_tickets: 0,
+    reward_cash: rewardCash,
+    reward_tickets: rewardTickets,
   };
 }
 
@@ -95,6 +97,7 @@ function toServerDrop(d: PanelDrop) {
   return {
     drop_id: d.dropId,
     name: d.name,
+    status: d.status,
     config: {
       dropId: d.dropId,
       status: d.status,
@@ -137,7 +140,7 @@ export function createQuestion(data: Question, label?: string, tags?: string[]):
   questions.push(q);
   saveQuestionsLocal(questions);
 
-  // Sync to server (fire and forget — UI no espera)
+  // Sync to server
   syncQuestionCreate(toServerQuestion(q)).catch((err) => {
     console.warn("[Store] syncQuestionCreate failed:", err);
   });
@@ -149,10 +152,12 @@ export function updateQuestion(id: string, data: Partial<Question>, label?: stri
   const questions = getQuestions();
   const idx = questions.findIndex((q) => q.id === id);
   if (idx === -1) return null;
+  
   questions[idx].data = { ...questions[idx].data, ...data } as Question;
   if (label !== undefined) questions[idx].label = label;
   if (tags !== undefined) questions[idx].tags = tags;
   questions[idx].updatedAt = now();
+  
   saveQuestionsLocal(questions);
 
   // Sync to server
@@ -169,7 +174,6 @@ export function deleteQuestion(id: string): boolean {
   if (filtered.length === questions.length) return false;
   saveQuestionsLocal(filtered);
 
-  // Also remove from any drop's questionIds
   const drops = getDrops();
   let dropsChanged = false;
   for (const drop of drops) {
@@ -201,7 +205,6 @@ export function duplicateQuestion(id: string): PanelQuestion | null {
   questions.push(dup);
   saveQuestionsLocal(questions);
 
-  // Sync to server (duplicate = create new)
   syncQuestionCreate(toServerQuestion(dup)).catch((err) => {
     console.warn("[Store] syncQuestionCreate (duplicate) failed:", err);
   });
@@ -249,7 +252,6 @@ export function createDrop(name: string): PanelDrop {
   drops.push(drop);
   saveDropsLocal(drops);
 
-  // Sync to server
   syncDropCreate(toServerDrop(drop) as any).catch((err) => {
     console.warn("[Store] syncDropCreate failed:", err);
   });
@@ -264,7 +266,6 @@ export function updateDrop(id: string, updates: Partial<PanelDrop>): PanelDrop |
   drops[idx] = { ...drops[idx], ...updates, updatedAt: now() };
   saveDropsLocal(drops);
 
-  // Sync to server — use dropId (DB key), not panel id
   syncDropUpdate(drops[idx].dropId, toServerDrop(drops[idx]) as any).catch((err) => {
     console.warn("[Store] syncDropUpdate failed:", err);
   });
@@ -278,7 +279,6 @@ export function deleteDrop(id: string): boolean {
   if (filtered.length === drops.length) return false;
   saveDropsLocal(filtered);
 
-  // Sync to server
   syncDropDelete(id).catch((err) => {
     console.warn("[Store] syncDropDelete failed:", err);
   });
@@ -302,7 +302,6 @@ export function duplicateDrop(id: string): PanelDrop | null {
   drops.push(dup);
   saveDropsLocal(drops);
 
-  // Sync to server (duplicate = create new)
   syncDropCreate(toServerDrop(dup) as any).catch((err) => {
     console.warn("[Store] syncDropCreate (duplicate) failed:", err);
   });
@@ -316,7 +315,6 @@ export function getDropById(id: string): PanelDrop | undefined {
 
 export function activateDrop(id: string): PanelDrop | null {
   const drops = getDrops();
-  // Deactivate all others
   drops.forEach((d) => {
     if (d.status === "active") d.status = "draft";
   });
@@ -326,22 +324,18 @@ export function activateDrop(id: string): PanelDrop | null {
   drops[idx].updatedAt = now();
   saveDropsLocal(drops);
 
-  // Sync to server — activate via the dedicated endpoint
-  syncDropUpdate(id, { status: "active" } as any).catch((err) => {
+  syncDropUpdate(drops[idx].dropId, toServerDrop(drops[idx]) as any).catch((err) => {
     console.warn("[Store] syncDropUpdate (activate) failed:", err);
   });
 
   return drops[idx];
 }
 
-// --- scheduleSyncToServer — no-op (legacy, kept for compatibility) ---
-// panel-sync.ts exporta esto pero ya no hace nada.
-// Las writes van directo al server desde cada operación CRUD.
 export function scheduleSyncToServer() {
-  // No-op intencional
+  // No-op
 }
 
-// --- Export: PanelDrop → Drop JSON ---
+// --- Export/Import JSON ---
 
 export function exportDropJSON(drop: PanelDrop, allQuestions: PanelQuestion[]): Drop {
   const questionsMap = new Map(allQuestions.map((q) => [q.id, q]));
@@ -351,8 +345,6 @@ export function exportDropJSON(drop: PanelDrop, allQuestions: PanelQuestion[]): 
     .map((qId) => questionsMap.get(qId))
     .filter((q): q is PanelQuestion => q !== undefined)
     .map((q) => {
-      // Build reward from top-level PanelQuestion fields (server format)
-      // or keep existing q.data.reward if present (local format)
       const pq = q as any;
       let reward = q.data.reward;
       if (!reward) {
@@ -372,18 +364,11 @@ export function exportDropJSON(drop: PanelDrop, allQuestions: PanelQuestion[]): 
     questions: orderedQuestions,
   };
 
-  if (drop.splash) {
-    result.splash = drop.splash;
-  }
-
-  if (drop.segmentIds && drop.segmentIds.length > 0) {
-    result.segmentIds = drop.segmentIds;
-  }
+  if (drop.splash) result.splash = drop.splash;
+  if (drop.segmentIds && drop.segmentIds.length > 0) result.segmentIds = drop.segmentIds;
 
   return result;
 }
-
-// --- Import: Drop JSON → PanelDrop + PanelQuestions ---
 
 export function importDropJSON(dropJson: Drop): { drop: PanelDrop; questions: PanelQuestion[] } {
   const importedQuestions: PanelQuestion[] = dropJson.questions.map((q) => ({
@@ -395,11 +380,9 @@ export function importDropJSON(dropJson: Drop): { drop: PanelDrop; questions: Pa
     updatedAt: now(),
   }));
 
-  // Save questions locally
   const existing = getQuestions();
   saveQuestionsLocal([...existing, ...importedQuestions]);
 
-  // Sync all imported questions to server
   importedQuestions.forEach((q) => {
     syncQuestionCreate(toServerQuestion(q)).catch((err) => {
       console.warn("[Store] syncQuestionCreate (import) failed:", err);
@@ -428,7 +411,6 @@ export function importDropJSON(dropJson: Drop): { drop: PanelDrop; questions: Pa
   drops.push(panelDrop);
   saveDropsLocal(drops);
 
-  // Sync drop to server
   syncDropCreate(toServerDrop(panelDrop) as any).catch((err) => {
     console.warn("[Store] syncDropCreate (import) failed:", err);
   });
@@ -436,109 +418,52 @@ export function importDropJSON(dropJson: Drop): { drop: PanelDrop; questions: Pa
   return { drop: panelDrop, questions: importedQuestions };
 }
 
-// --- Question type metadata ---
+// --- Metadata & Defaults ---
 
 export type QuestionType = Question["type"];
 
 export const QUESTION_TYPE_CATEGORIES: Record<string, { label: string; types: QuestionType[] }> = {
-  basic: {
-    label: "Básico",
-    types: ["choice", "slider", "confesionario"],
-  },
-  visual: {
-    label: "Visual",
-    types: ["choice_emoji", "choice_hybrid", "slider_emoji", "binary_media", "hot_take_visual", "media_reaction"],
-  },
-  interactive: {
-    label: "Interactivo",
-    types: ["ranking", "prediction_bet", "rafaga", "rafaga_emoji", "hot_take"],
-  },
-  special: {
-    label: "Especial",
-    types: ["trap", "trap_silent", "dead_drop"],
-  },
+  basic: { label: "Básico", types: ["choice", "slider", "confesionario"] },
+  visual: { label: "Visual", types: ["choice_emoji", "choice_hybrid", "slider_emoji", "binary_media", "hot_take_visual", "media_reaction"] },
+  interactive: { label: "Interactivo", types: ["ranking", "prediction_bet", "rafaga", "rafaga_emoji", "hot_take"] },
+  special: { label: "Especial", types: ["trap", "trap_silent", "dead_drop"] },
 };
 
 export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
-  choice: "Choice",
-  prediction_bet: "Prediction Bet",
-  ranking: "Ranking",
-  confesionario: "Confesionario",
-  slider: "Slider",
-  binary_media: "Binary Media",
-  rafaga: "Ráfaga",
-  dead_drop: "Dead Drop",
-  trap: "Trap",
-  hot_take: "Hot Take",
-  trap_silent: "Trap Silent",
-  choice_emoji: "Choice Emoji",
-  choice_hybrid: "Choice Hybrid",
-  slider_emoji: "Slider Emoji",
-  rafaga_emoji: "Ráfaga Emoji",
-  hot_take_visual: "Hot Take Visual",
-  media_reaction: "Media Reaction",
+  choice: "Choice", prediction_bet: "Prediction Bet", ranking: "Ranking", confesionario: "Confesionario",
+  slider: "Slider", binary_media: "Binary Media", rafaga: "Ráfaga", dead_drop: "Dead Drop",
+  trap: "Trap", hot_take: "Hot Take", trap_silent: "Trap Silent", choice_emoji: "Choice Emoji",
+  choice_hybrid: "Choice Hybrid", slider_emoji: "Slider Emoji", rafaga_emoji: "Ráfaga Emoji",
+  hot_take_visual: "Hot Take Visual", media_reaction: "Media Reaction",
 };
 
 export const QUESTION_TYPE_ICONS: Record<QuestionType, string> = {
-  choice: "🔘",
-  prediction_bet: "🎰",
-  ranking: "📊",
-  confesionario: "🤫",
-  slider: "🎚️",
-  binary_media: "🖼️",
-  rafaga: "⚡",
-  dead_drop: "💀",
-  trap: "🪤",
-  hot_take: "🔥",
-  trap_silent: "🕵️",
-  choice_emoji: "😀",
-  choice_hybrid: "💬",
-  slider_emoji: "🫠",
-  rafaga_emoji: "⚡😀",
-  hot_take_visual: "🔥🖼️",
-  media_reaction: "📸",
+  choice: "🔘", prediction_bet: "🎰", ranking: "📊", confesionario: "🤫", slider: "🎚️",
+  binary_media: "🖼️", rafaga: "⚡", dead_drop: "💀", trap: "🪤", hot_take: "🔥",
+  trap_silent: "🕵️", choice_emoji: "😀", choice_hybrid: "💬", slider_emoji: "🫠",
+  rafaga_emoji: "⚡😀", hot_take_visual: "🔥🖼️", media_reaction: "📸",
 };
-
-// --- Default question data by type ---
 
 export function getDefaultQuestionData(type: QuestionType): Question {
   const base = { timer: 15 };
   switch (type) {
-    case "choice":
-      return { ...base, type: "choice", text: "", options: ["", ""] };
-    case "choice_emoji":
-      return { ...base, type: "choice_emoji", text: "", options: ["😀", "😢"] };
-    case "choice_hybrid":
-      return { ...base, type: "choice_hybrid", text: "", options: ["", ""] };
-    case "slider":
-      return { ...base, type: "slider", text: "", min: 0, max: 10, labelLeft: "Nada", labelRight: "Totalmente" };
-    case "slider_emoji":
-      return { ...base, type: "slider_emoji", text: "", min: 0, max: 10, labelLeft: "🫣", labelRight: "😏" };
-    case "confesionario":
-      return { ...base, timer: 30, type: "confesionario", text: "" };
-    case "prediction_bet":
-      return { ...base, type: "prediction_bet", text: "", optionA: "", optionB: "", maxTickets: 100 };
-    case "ranking":
-      return { ...base, type: "ranking", text: "", options: ["", "", ""] };
-    case "binary_media":
-      return { ...base, type: "binary_media", imageUrl: "", optionA: "", optionB: "" };
-    case "rafaga":
-      return { ...base, timer: 0, type: "rafaga", prompt: "", promptBold: "", items: [{ text: "", optionA: "", optionB: "" }], secondsPerItem: 3 };
-    case "rafaga_emoji":
-      return { ...base, timer: 0, type: "rafaga_emoji", prompt: "", promptBold: "", items: [{ text: "", optionA: "😀", optionB: "😢" }], secondsPerItem: 3 };
-    case "hot_take":
-      return { ...base, type: "hot_take", text: "", options: ["", ""] };
-    case "hot_take_visual":
-      return { ...base, type: "hot_take_visual", text: "", options: ["", ""] };
-    case "trap":
-      return { ...base, type: "trap", text: "", options: ["", ""], correctIndex: 0, penalty: 50 };
-    case "trap_silent":
-      return { ...base, type: "trap_silent", text: "", options: ["", ""], correctIndex: 0, penalty: 25 };
-    case "dead_drop":
-      return { ...base, timer: 0, type: "dead_drop", firstLine: "", codeLines: [""], lastLines: [""] };
-    case "media_reaction":
-      return { ...base, type: "media_reaction", imageUrl: "", text: "", mode: "emoji", options: ["😍", "🤮"] };
-    default:
-      return { ...base, type: "choice", text: "", options: ["", ""] };
+    case "choice": return { ...base, type: "choice", text: "", options: ["", ""] };
+    case "choice_emoji": return { ...base, type: "choice_emoji", text: "", options: ["😀", "😢"] };
+    case "choice_hybrid": return { ...base, type: "choice_hybrid", text: "", options: ["", ""] };
+    case "slider": return { ...base, type: "slider", text: "", min: 0, max: 10, labelLeft: "Nada", labelRight: "Totalmente" };
+    case "slider_emoji": return { ...base, type: "slider_emoji", text: "", min: 0, max: 10, labelLeft: "🫣", labelRight: "😏" };
+    case "confesionario": return { ...base, timer: 30, type: "confesionario", text: "" };
+    case "prediction_bet": return { ...base, type: "prediction_bet", text: "", optionA: "", optionB: "", maxTickets: 100 };
+    case "ranking": return { ...base, type: "ranking", text: "", options: ["", "", ""] };
+    case "binary_media": return { ...base, type: "binary_media", imageUrl: "", optionA: "", optionB: "" };
+    case "rafaga": return { ...base, timer: 0, type: "rafaga", prompt: "", promptBold: "", items: [{ text: "", optionA: "", optionB: "" }], secondsPerItem: 3 };
+    case "rafaga_emoji": return { ...base, timer: 0, type: "rafaga_emoji", prompt: "", promptBold: "", items: [{ text: "", optionA: "😀", optionB: "😢" }], secondsPerItem: 3 };
+    case "hot_take": return { ...base, type: "hot_take", text: "", options: ["", ""] };
+    case "hot_take_visual": return { ...base, type: "hot_take_visual", text: "", options: ["", ""] };
+    case "trap": return { ...base, type: "trap", text: "", options: ["", ""], correctIndex: 0, penalty: 50 };
+    case "trap_silent": return { ...base, type: "trap_silent", text: "", options: ["", ""], correctIndex: 0, penalty: 25 };
+    case "dead_drop": return { ...base, timer: 0, type: "dead_drop", firstLine: "", codeLines: [""], lastLines: [""] };
+    case "media_reaction": return { ...base, type: "media_reaction", imageUrl: "", text: "", mode: "emoji", options: ["😍", "🤮"] };
+    default: return { ...base, type: "choice", text: "", options: ["", ""] };
   }
 }
