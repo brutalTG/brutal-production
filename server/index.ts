@@ -543,6 +543,37 @@ app.post("/sessions/complete", requireTelegram, async (c) => {
       drops_completed: (prof.drops_completed || 0) + 1, last_drop_at: new Date().toISOString(),
     }).eq("node_id", node.node_id);
   }
+  // Send bot message with rewards summary
+  try {
+    const { data: channel } = await db().from("node_channels")
+      .select("channel_identifier").eq("node_id", node.node_id).eq("channel", "telegram").single();
+    if (channel?.channel_identifier) {
+      const tgChatId = channel.channel_identifier;
+      const cashStr = totalCash > 0 ? `💰 $${Number(totalCash).toFixed(2)}` : "";
+      const ticketStr = totalTickets > 0 ? `🎟️ ${totalTickets} tickets` : "";
+      const rewardLine = [cashStr, ticketStr].filter(Boolean).join("  +  ");
+      const msgText = `✅ *Drop completado*\n\n${rewardLine || "Sin rewards esta vez"}\n\nMirá cómo te fue:`;
+      await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: tgChatId,
+          text: msgText,
+          parse_mode: "Markdown",
+          reply_markup: { inline_keyboard: [
+            [
+              { text: "📊 Mi Perfil", web_app: { url: `${process.env.RAILWAY_PUBLIC_DOMAIN ? "https://" + process.env.RAILWAY_PUBLIC_DOMAIN : "https://brutal-production-production-24da.up.railway.app"}/?screen=profile` } },
+              { text: "🏆 Leaderboard", web_app: { url: `${process.env.RAILWAY_PUBLIC_DOMAIN ? "https://" + process.env.RAILWAY_PUBLIC_DOMAIN : "https://brutal-production-production-24da.up.railway.app"}/?screen=leaderboard` } },
+            ],
+          ]},
+        }),
+      });
+    }
+  } catch (botErr) {
+    console.error("[BRUTAL] Post-drop bot message failed:", botErr);
+    // Non-blocking — don't fail the session complete
+  }
+
   return c.json({ ok: true, total_cash: totalCash, total_tickets: totalTickets,
     trap_score: `${trapsPassed}/${traps?.length || 0}` });
 });
