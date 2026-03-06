@@ -514,7 +514,27 @@ app.post("/sessions/complete", requireTelegram, async (c) => {
   if (!session_id) return c.json({ error: "session_id required" }, 400);
   const node = await resolveNode(user.id);
   if (!node) return c.json({ error: "Not authorized" }, 403);
-  const finalMultiplier = clientMultiplier || 1;
+
+  // Calculate multiplier server-side from drop config + actual responses
+  const { data: sessionData } = await db().from("sessions")
+    .select("drop_id").eq("session_id", session_id).single();
+  let serverMultiplier = 1;
+  if (sessionData?.drop_id) {
+    const { data: dropData } = await db().from("drops")
+      .select("config").eq("drop_id", sessionData.drop_id).single();
+    const checkpoints = dropData?.config?.multiplierCheckpoints || {};
+    // Count actual responses for this session
+    const { count: responseCount } = await db().from("responses")
+      .select("*", { count: "exact", head: true }).eq("session_id", session_id);
+    // Apply all checkpoints where position < responseCount
+    for (const [pos, cp] of Object.entries(checkpoints)) {
+      if (Number(pos) < (responseCount || 0) && (cp as any).multiplier > serverMultiplier) {
+        serverMultiplier = (cp as any).multiplier;
+      }
+    }
+  }
+  // Use server-calculated multiplier, fallback to client if server can't determine
+  const finalMultiplier = serverMultiplier > 1 ? serverMultiplier : (clientMultiplier || 1);
 
   // Update session multiplier first so it's recorded
   await db().from("sessions").update({ multiplier: finalMultiplier }).eq("session_id", session_id);
