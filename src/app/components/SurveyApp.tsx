@@ -508,6 +508,7 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
       completeSession({
         archetype_result: archetypeData,
         bic_scores: session?.signalPairs || null,
+        multiplier: currentMultiplier,
       });
     }
 

@@ -241,6 +241,7 @@ async function _sendResponse(
 export async function completeSession(params: {
   archetype_result?: { id: string; title: string };
   bic_scores?: any;
+  multiplier?: number;
 }): Promise<boolean> {
   const doComplete = async (): Promise<boolean> => {
     // Flush any queued responses first
@@ -259,6 +260,7 @@ export async function completeSession(params: {
           session_id: _sessionId,
           archetype_result: params.archetype_result || null,
           bic_scores: params.bic_scores || null,
+          multiplier: params.multiplier || 1,
         }),
       });
 
