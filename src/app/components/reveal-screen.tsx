@@ -127,6 +127,15 @@ export function RevealScreen({
     return () => clearInterval(interval);
   }, [claimPhase, tickets, finalTickets, onClaim]);
 
+  // Auto-close Mini App 1.5s after claim is done
+  useEffect(() => {
+    if (claimPhase !== "done") return;
+    const timer = setTimeout(() => {
+      onClaim();
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [claimPhase, onClaim]);
+
   const handleClaim = async () => {
     if (claimPhase !== "idle") return;
 
@@ -380,40 +389,13 @@ export function RevealScreen({
           {/* Claim button / Done state */}
           {claimPhase === "done" ? (
             <div className="flex flex-col items-center gap-3 w-full max-w-[290px]">
-              <button
-                onClick={onClaim}
-                className="w-full h-[60px] rounded-full flex items-center justify-center select-none active:scale-[0.98] transition-transform duration-150"
+              <div
+                className="w-full h-[60px] rounded-full flex items-center justify-center"
                 style={{ backgroundColor: "var(--dynamic-bg, #000)", animation: "reveal-checkmark 400ms ease-out forwards" }}
               >
                 <span className="font-['Roboto'] font-semibold text-[21px]" style={{ color: "var(--dynamic-fg, #fff)" }}>
-                  Reclamado
+                  ✓ Reclamado
                 </span>
-              </button>
-
-              {/* Post-claim navigation */}
-              <div className="flex gap-2 w-full">
-                {onProfile && (
-                  <button
-                    onClick={onProfile}
-                    className="flex-1 h-[44px] rounded-full border-2 flex items-center justify-center select-none active:scale-[0.97] transition-transform duration-150"
-                    style={{ borderColor: "var(--dynamic-bg, #000)" }}
-                  >
-                    <span className="font-['Fira_Code'] font-semibold text-[13px]" style={{ color: "var(--dynamic-bg, #000)" }}>
-                      Mi Perfil
-                    </span>
-                  </button>
-                )}
-                {onLeaderboard && (
-                  <button
-                    onClick={onLeaderboard}
-                    className="flex-1 h-[44px] rounded-full flex items-center justify-center select-none active:scale-[0.97] transition-transform duration-150"
-                    style={{ backgroundColor: "var(--dynamic-bg, #000)" }}
-                  >
-                    <span className="font-['Fira_Code'] font-semibold text-[13px]" style={{ color: "var(--dynamic-fg, #fff)" }}>
-                      Leaderboard
-                    </span>
-                  </button>
-                )}
               </div>
             </div>
           ) : (
