@@ -791,30 +791,58 @@ app.post("/apply", async (c) => {
 
   const isComplete = nickname && age && gender;
   const status = isComplete ? "pending" : "incomplete";
-  const { data: newNode, error: nodeErr } = await db().from("nodes").insert({
-    phone: normalPhone, nickname: nickname || null, age: age || null, gender: gender || null,
-    location_province: locationProvince, location_city: locationCity,
-    phone_brand: phoneBrand || null, compass_vector: compassVector,
-    compass_archetype: compassArchetype, brand_vector: brandVector,
-    handles: handles || null, referred_by: referredBy, status,
-    onboarding_step: isComplete ? 99 : 1,
-    ...tgFields
-  }).select("node_id, referral_code, status").single();
-  
-  if (nodeErr) return c.json({ ok: false, error: nodeErr.message }, 500);
 
-  await db().from("profiles").insert({
-    node_id: newNode.node_id, cash_balance: 0, cash_lifetime: 0, cash_withdrawn: 0,
-    tickets_current: 0, tickets_lifetime: 0, drops_completed: 0, bot_questions_answered: 0,
-    traps_passed: 0, traps_failed: 0, current_streak: 0, best_streak: 0,
-  });
-  await anonId(newNode.node_id);
-
+  // PARCHE B: BUSCAR SI EL WEBHOOK YA CREÓ EL CASCARÓN POR CONDICIÓN DE CARRERA
+  let existingNodeId = null;
   if (telegramUserId) {
-    await db().from("node_channels").upsert({
-      node_id: newNode.node_id, channel: "telegram",
-      channel_identifier: String(telegramUserId), is_primary: true,
-    }, { onConflict: "channel,channel_identifier" });
+    const { data: ch } = await db().from("node_channels").select("node_id").eq("channel", "telegram").eq("channel_identifier", String(telegramUserId)).single();
+    if (ch) existingNodeId = ch.node_id;
+  }
+
+  let newNode;
+  if (existingNodeId) {
+    // El webhook llegó primero y ya guardó el teléfono. Actualizamos el resto de los campos.
+    const { data: updatedNode, error: nodeErr } = await db().from("nodes").update({
+      nickname: nickname || null, age: age || null, gender: gender || null,
+      location_province: locationProvince, location_city: locationCity,
+      phone_brand: phoneBrand || null, compass_vector: compassVector,
+      compass_archetype: compassArchetype, brand_vector: brandVector,
+      handles: handles || null, referred_by: referredBy, status,
+      onboarding_step: isComplete ? 99 : 1,
+      ...tgFields
+    }).eq("node_id", existingNodeId).select("node_id, referral_code, status").single();
+    
+    if (nodeErr) return c.json({ ok: false, error: nodeErr.message }, 500);
+    newNode = updatedNode;
+  } else {
+    // Flujo normal (el usuario cargó a mano o el frontend llegó antes que el webhook)
+    const { data: insertedNode, error: nodeErr } = await db().from("nodes").insert({
+      phone: normalPhone, nickname: nickname || null, age: age || null, gender: gender || null,
+      location_province: locationProvince, location_city: locationCity,
+      phone_brand: phoneBrand || null, compass_vector: compassVector,
+      compass_archetype: compassArchetype, brand_vector: brandVector,
+      handles: handles || null, referred_by: referredBy, status,
+      onboarding_step: isComplete ? 99 : 1,
+      ...tgFields
+    }).select("node_id, referral_code, status").single();
+    
+    if (nodeErr) return c.json({ ok: false, error: nodeErr.message }, 500);
+    newNode = insertedNode;
+
+    // Solo insertamos perfiles y canales si el nodo es 100% nuevo
+    await db().from("profiles").insert({
+      node_id: newNode.node_id, cash_balance: 0, cash_lifetime: 0, cash_withdrawn: 0,
+      tickets_current: 0, tickets_lifetime: 0, drops_completed: 0, bot_questions_answered: 0,
+      traps_passed: 0, traps_failed: 0, current_streak: 0, best_streak: 0,
+    });
+    await anonId(newNode.node_id);
+
+    if (telegramUserId) {
+      await db().from("node_channels").upsert({
+        node_id: newNode.node_id, channel: "telegram",
+        channel_identifier: String(telegramUserId), is_primary: true,
+      }, { onConflict: "channel,channel_identifier" });
+    }
   }
 
   if (compassRaw && typeof compassRaw === "object") {
@@ -1714,7 +1742,7 @@ app.post("/bot/webhook", async (c) => {
     });
   }
 
-  // TAREA 2: Captura del contacto verificado (requestContact fallback handler)
+  // TAREA 2 FIX: RACE CONDITION - Webhook
   if (update.message?.contact) {
     const contact = update.message.contact;
     const tgUserId = contact.user_id;
@@ -1724,12 +1752,30 @@ app.post("/bot/webhook", async (c) => {
     if (tgUserId) {
       const { data: ch } = await db().from("node_channels")
         .select("node_id").eq("channel", "telegram").eq("channel_identifier", String(tgUserId)).single();
+        
       if (ch?.node_id) {
+        // Si el nodo ya existía, lo actualizamos
         await db().from("nodes").update({
-          phone: phone,
-          phone_verified: true,
-          phone_source: "telegram"
+          phone: phone, phone_verified: true, phone_source: "telegram"
         }).eq("node_id", ch.node_id);
+      } else {
+        // RACE CONDITION FIX: El webhook llegó primero. Creamos un "nodo cascarón" con el teléfono.
+        const { data: newNode, error: err } = await db().from("nodes").insert({
+          phone: phone, phone_verified: true, phone_source: "telegram", status: "incomplete", onboarding_step: 1
+        }).select("node_id").single();
+        
+        if (newNode) {
+          await db().from("node_channels").insert({
+            node_id: newNode.node_id, channel: "telegram", channel_identifier: String(tgUserId), is_primary: true
+          });
+          await db().from("profiles").insert({
+            node_id: newNode.node_id, cash_balance: 0, cash_lifetime: 0, cash_withdrawn: 0,
+            tickets_current: 0, tickets_lifetime: 0, drops_completed: 0, bot_questions_answered: 0,
+            traps_passed: 0, traps_failed: 0, current_streak: 0, best_streak: 0,
+          });
+          const newAnon = "anon_" + crypto.randomUUID().replace(/-/g, "").slice(0, 32);
+          await db().from("anonymous_id_map").insert({ node_id: newNode.node_id, anonymous_id: newAnon });
+        }
       }
     }
     return c.json({ ok: true });
