@@ -56,7 +56,7 @@ export function IntroStepView({ step, onNext }: { step: IntroStep; onNext: () =>
   );
 }
 
-// ── PHONE INPUT ─────────────────────────────────────────────
+// ── PHONE INPUT (Merged Logic & UI) ─────────────────────────
 
 export function PhoneStepView({ step, onNext }: { step: PhoneStep; onNext: (val: string) => void }) {
   const [showManual, setShowManual] = useState(false);
@@ -76,7 +76,6 @@ export function PhoneStepView({ step, onNext }: { step: PhoneStep; onNext: (val:
   };
 
   const handleTelegramContact = () => {
-    // Cast a any para bypassear tipado estricto en TS sin meter imports raros
     const tg = (window as any).Telegram?.WebApp;
     if (tg?.requestContact) {
       tg.requestContact((shared: boolean) => {
@@ -95,7 +94,7 @@ export function PhoneStepView({ step, onNext }: { step: PhoneStep; onNext: (val:
   if (!showManual) {
     return (
       <div className="flex flex-col flex-1">
-        <DuotoneCard hint="FASE A · 1/6">
+        <DuotoneCard>
           <CardTitle size="md">{step.copy}</CardTitle>
           <div className="w-full mb-4 flex flex-col gap-3">
             <ActionButton label="Continuar con Telegram" onClick={handleTelegramContact} />
@@ -114,24 +113,32 @@ export function PhoneStepView({ step, onNext }: { step: PhoneStep; onNext: (val:
 
   return (
     <div className="flex flex-col flex-1">
-      <DuotoneCard hint="FASE A · 1/6">
+      <DuotoneCard>
         <CardTitle size="md">{step.copy}</CardTitle>
         <div className="w-full mb-2">
-          <div className="flex items-center gap-2">
+          <div
+            className="w-full h-[60px] rounded-[8px] border-2 flex items-center px-4 gap-3"
+            style={{ borderColor: "var(--dynamic-bg, #000)" }}
+          >
             <span
-              className="font-['Fira_Code'] font-medium text-[16px] shrink-0"
+              className="font-['Roboto'] font-normal text-[18px] shrink-0 opacity-40"
               style={{ color: "var(--dynamic-bg, #000)" }}
             >
-              +54
+              🇦🇷 +54
             </span>
-            <CardInput
-              inputRef={inputRef}
+            <input
+              ref={inputRef}
               type="tel"
               inputMode="numeric"
               value={phone}
-              onChange={(val) => setPhone(val.replace(/[^\d\s-]/g, ""))}
-              placeholder="11 2345 6789"
-              fontFamily="Fira_Code"
+              onChange={(e) => setPhone(e.target.value.replace(/[^\d\s-]/g, ""))}
+              placeholder="11 4000 0000"
+              className="flex-1 bg-transparent outline-none font-['Roboto'] font-normal text-[18px]"
+              style={{
+                color: "var(--dynamic-bg, #000)",
+                caretColor: "var(--dynamic-bg, #000)",
+                fontSize: "18px",
+              }}
               onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
             />
           </div>
@@ -141,9 +148,10 @@ export function PhoneStepView({ step, onNext }: { step: PhoneStep; onNext: (val:
     </div>
   );
 }
+
 // ── TEXT INPUT ───────────────────────────────────────────────
 
-export function TextInputStepView({ step, hint, onNext }: { step: TextInputStep; hint: string; onNext: (val: string) => void }) {
+export function TextInputStepView({ step, onNext }: { step: TextInputStep; onNext: (val: string) => void }) {
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const isValid = value.trim().length >= 2;
@@ -159,7 +167,7 @@ export function TextInputStepView({ step, hint, onNext }: { step: TextInputStep;
 
   return (
     <div className="flex flex-col flex-1">
-      <DuotoneCard hint={hint}>
+      <DuotoneCard>
         <CardTitle size="md">{step.copy}</CardTitle>
         <div className="w-full mb-2">
           <CardInput
@@ -184,7 +192,7 @@ export function TextInputStepView({ step, hint, onNext }: { step: TextInputStep;
 
 // ── AGE SELECTOR ────────────────────────────────────────────
 
-export function AgeSelectorStepView({ step, hint, onNext, onReject }: { step: AgeSelectorStep; hint: string; onNext: (val: number) => void; onReject: (msg: string) => void }) {
+export function AgeSelectorStepView({ step, onNext, onReject }: { step: AgeSelectorStep; onNext: (val: number) => void; onReject: (msg: string) => void }) {
   const [age, setAge] = useState(20);
   const trackRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -235,7 +243,7 @@ export function AgeSelectorStepView({ step, hint, onNext, onReject }: { step: Ag
 
   return (
     <div className="flex flex-col flex-1 gap-6">
-      <DuotoneCard hint={hint}>
+      <DuotoneCard>
         <CardTitle size="md">{step.copy}</CardTitle>
         <div className="text-center mb-4">
           <span className="font-['Roboto'] font-bold text-[64px] leading-none" style={{ color: "var(--dynamic-bg, #000)" }}>
@@ -290,7 +298,7 @@ export function AgeSelectorStepView({ step, hint, onNext, onReject }: { step: Ag
 
 // ── SINGLE CHOICE ───────────────────────────────────────────
 
-export function SingleChoiceStepView({ step, hint, onNext }: { step: SingleChoiceStep; hint: string; onNext: (val: string) => void }) {
+export function SingleChoiceStepView({ step, onNext }: { step: SingleChoiceStep; onNext: (val: string) => void }) {
   const [selected, setSelected] = useState<string | null>(null);
 
   const handleSelect = (opt: string) => {
@@ -301,7 +309,7 @@ export function SingleChoiceStepView({ step, hint, onNext }: { step: SingleChoic
 
   return (
     <div className="flex flex-col flex-1">
-      <DuotoneCard hint={hint}>
+      <DuotoneCard>
         <CardTitle size="md">{step.copy}</CardTitle>
         <div className="w-full flex flex-col gap-[5px]">
           {step.options.map((opt) => (
@@ -322,7 +330,7 @@ export function SingleChoiceStepView({ step, hint, onNext }: { step: SingleChoic
 
 // ── NESTED CHOICE ───────────────────────────────────────────
 
-export function NestedChoiceStepView({ step, hint, onNext }: { step: NestedChoiceStep; hint: string; onNext: (val: string) => void }) {
+export function NestedChoiceStepView({ step, onNext }: { step: NestedChoiceStep; onNext: (val: string) => void }) {
   const [selectedParent, setSelectedParent] = useState<string | null>(null);
   const [selectedSub, setSelectedSub] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
@@ -354,15 +362,15 @@ export function NestedChoiceStepView({ step, hint, onNext }: { step: NestedChoic
   if (hasSubs && selectedParent) {
     return (
       <div className="flex flex-col flex-1">
-        <DuotoneCard hint={hint}>
+        <DuotoneCard>
           <CardTitle size="md">{`${selectedParent} — ¿Donde?`}</CardTitle>
-          <div className="w-full flex flex-col gap-[5px] max-h-[380px] overflow-y-auto">
+          <div className="w-full flex flex-col gap-[10px] max-h-[380px] overflow-y-auto">
             {parentOpt!.subOptions!.map((sub) => (
               <OptionButton
                 key={sub}
                 selected={selectedSub === sub}
                 onClick={() => handleSub(sub)}
-                height="sm"
+                height="md"
               >
                 {sub}
               </OptionButton>
@@ -370,7 +378,7 @@ export function NestedChoiceStepView({ step, hint, onNext }: { step: NestedChoic
           </div>
           <button
             onClick={() => { setSelectedParent(null); setSelectedSub(null); setLocked(false); }}
-            className="mt-3 text-[12px] opacity-50 font-['Fira_Code']"
+            className="mt-4 text-[14px] font-semibold opacity-60 font-['Roboto']"
             style={{ color: "var(--dynamic-bg, #000)" }}
           >
             {"<"} Volver
@@ -382,9 +390,9 @@ export function NestedChoiceStepView({ step, hint, onNext }: { step: NestedChoic
 
   return (
     <div className="flex flex-col flex-1">
-      <DuotoneCard hint={hint}>
+      <DuotoneCard>
         <CardTitle size="md">{step.copy}</CardTitle>
-        <div className="w-full flex flex-col gap-[5px]">
+        <div className="w-full flex flex-col gap-[10px]">
           {step.options.map((opt) => (
             <OptionButton
               key={opt.label}
@@ -403,7 +411,7 @@ export function NestedChoiceStepView({ step, hint, onNext }: { step: NestedChoic
 
 // ── MULTI SELECT ────────────────────────────────────────────
 
-export function MultiSelectStepView({ step, hint, onNext }: { step: MultiSelectStep; hint: string; onNext: (val: string[]) => void }) {
+export function MultiSelectStepView({ step, onNext }: { step: MultiSelectStep; onNext: (val: string[]) => void }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const limit = step.exactCount || step.maxSelect || step.options.length;
   const minRequired = step.exactCount || step.minSelect || 1;
@@ -429,7 +437,7 @@ export function MultiSelectStepView({ step, hint, onNext }: { step: MultiSelectS
 
   return (
     <div className="flex flex-col flex-1">
-      <DuotoneCard hint={hint}>
+      <DuotoneCard>
         <CardTitle size="md">{step.copy}</CardTitle>
         <p className="text-[12px] font-['Fira_Code'] mb-3 opacity-60" style={{ color: "var(--dynamic-bg, #000)" }}>
           {counterLabel}
@@ -449,7 +457,7 @@ export function MultiSelectStepView({ step, hint, onNext }: { step: MultiSelectS
 
 // ── SCALE ───────────────────────────────────────────────────
 
-export function ScaleStepView({ step, hint, onNext }: { step: ScaleStep; hint: string; onNext: (val: number) => void }) {
+export function ScaleStepView({ step, onNext }: { step: ScaleStep; onNext: (val: number) => void }) {
   const [selected, setSelected] = useState<number | null>(null);
 
   const handleSelect = (val: number) => {
@@ -461,7 +469,7 @@ export function ScaleStepView({ step, hint, onNext }: { step: ScaleStep; hint: s
 
   return (
     <div className="flex flex-col flex-1">
-      <DuotoneCard hint={hint}>
+      <DuotoneCard>
         <CardTitle size="md">{step.copy}</CardTitle>
         <div className="w-full flex flex-col gap-[5px]">
           {step.options.map((opt) => (
@@ -496,7 +504,7 @@ export function ScaleStepView({ step, hint, onNext }: { step: ScaleStep; hint: s
 
 // ── FREE TEXT ────────────────────────────────────────────────
 
-export function FreeTextStepView({ step, hint, onNext }: { step: FreeTextStep; hint: string; onNext: (val: string) => void }) {
+export function FreeTextStepView({ step, onNext }: { step: FreeTextStep; onNext: (val: string) => void }) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const minLen = step.minLength || 2;
@@ -513,7 +521,7 @@ export function FreeTextStepView({ step, hint, onNext }: { step: FreeTextStep; h
 
   return (
     <div className="flex flex-col flex-1">
-      <DuotoneCard hint={hint}>
+      <DuotoneCard>
         <CardTitle size="md">{step.copy}</CardTitle>
         <div className="w-full mb-2">
           <textarea
@@ -599,63 +607,103 @@ export function MultiplierHandlesStepView({
 
   return (
     <div className="flex flex-col flex-1">
-      <DuotoneCard>
-        <div className="text-center mb-2">
-          <h2 className="font-['Roboto'] font-bold text-[22px] leading-tight" style={{ color: "var(--dynamic-bg, #000)" }}>
-            {step.title}
-          </h2>
-          <p className="font-['Fira_Code'] text-[12px] mt-2 opacity-60 whitespace-pre-wrap" style={{ color: "var(--dynamic-bg, #000)" }}>
-            {step.subtitle}
-          </p>
-        </div>
+      {/* Title */}
+      <h2
+        className="font-['Roboto'] font-bold text-[24px] text-center leading-tight mb-2"
+        style={{ color: "var(--dynamic-fg, #fff)" }}
+      >
+        {step.title}
+      </h2>
+      <div
+        className="text-center mb-6"
+        style={{ color: "var(--dynamic-fg, #fff)" }}
+      >
+        <p className="font-['Roboto'] text-[14px] leading-[22px]">
+          Cada campo completo suma posiciones
+        </p>
+        <p className="font-['Roboto'] text-[14px] leading-[22px]">
+          Mas datos = mejor perfil = mejores drops
+        </p>
+      </div>
 
-        {/* Boost counter */}
-        {(positionBoost + totalBoost) > 0 && (
-          <CardPill>
-            +{positionBoost + totalBoost} posiciones ganadas
-          </CardPill>
-        )}
-
-        <div className="w-full flex flex-col gap-3">
-          {step.handles.map((h) => (
-            <div key={h.id}>
-              <div className="flex items-center justify-between mb-1">
-                <span className="font-['Roboto'] font-medium text-[13px]" style={{ color: "var(--dynamic-bg, #000)" }}>
-                  {h.label}
-                </span>
-                <span className="font-['Fira_Code'] text-[11px] opacity-50" style={{ color: "var(--dynamic-bg, #000)" }}>
-                  +{h.positionBoost} pos
-                </span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="font-['Fira_Code'] text-[13px] shrink-0 opacity-40" style={{ color: "var(--dynamic-bg, #000)" }}>
-                  {h.prefix}
-                </span>
-                <CardInput
-                  value={handles[h.id] || ""}
-                  onChange={(val) => setHandles((prev) => ({ ...prev, [h.id]: val }))}
-                  placeholder={h.placeholder}
-                  fontFamily="Fira_Code"
-                  className="h-[42px] text-[14px]"
-                />
-              </div>
+      {/* Handle inputs */}
+      <div className="w-full flex flex-col gap-5 mb-6">
+        {step.handles.map((h) => (
+          <div key={h.id}>
+            <div className="flex items-center justify-between mb-1.5">
+              <span
+                className="font-['Roboto'] font-semibold text-[14px]"
+                style={{ color: "var(--dynamic-fg, #fff)" }}
+              >
+                {h.label}
+              </span>
+              <span
+                className="font-['Roboto'] text-[14px]"
+                style={{ color: "var(--dynamic-fg, #fff)" }}
+              >
+                + {h.positionBoost} pos
+              </span>
             </div>
-          ))}
-        </div>
+            <div
+              className="w-full h-[54px] rounded-[14px] border-2 flex items-center px-4"
+              style={{ borderColor: "var(--dynamic-fg, #fff)" }}
+            >
+              <input
+                type="text"
+                value={handles[h.id] || ""}
+                onChange={(e) => setHandles((prev) => ({ ...prev, [h.id]: e.target.value }))}
+                placeholder={h.placeholder}
+                className="w-full bg-transparent outline-none font-['Roboto'] font-medium text-[16px]"
+                style={{
+                  color: "var(--dynamic-fg, #fff)",
+                  caretColor: "var(--dynamic-fg, #fff)",
+                }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
 
-        <ActionButton
-          label={filledCount > 0 ? `Guardar (${filledCount})` : "Saltar"}
+      {/* Boost pill */}
+      {(positionBoost + totalBoost) > 0 && (
+        <div className="flex justify-center mb-6">
+          <div
+            className="px-4 py-1.5 rounded-[21px] flex items-center gap-1.5"
+            style={{ backgroundColor: "var(--dynamic-fg, #fff)" }}
+          >
+            <span
+              className="font-['Fira_Code'] font-semibold text-[10px] tracking-tight"
+              style={{ color: "var(--dynamic-bg, #000)" }}
+            >
+              + {positionBoost + totalBoost} posiciones ganadas
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Continue button — pushed to bottom */}
+      <div className="mt-auto mb-4">
+        <button
           onClick={() => {
             resetViewport();
             setTimeout(() => onNext(handles), 100);
           }}
-        />
-      </DuotoneCard>
+          className="w-full h-[60px] rounded-[14px] flex items-center justify-center active:scale-[0.98] transition-transform"
+          style={{ backgroundColor: "var(--dynamic-fg, #fff)" }}
+        >
+          <span
+            className="font-['Roboto'] font-semibold text-[21px]"
+            style={{ color: "var(--dynamic-bg, #000)" }}
+          >
+            {filledCount > 0 ? "Continuar" : "Saltar"}
+          </span>
+        </button>
+      </div>
     </div>
   );
 }
 
-// ── CLOSING ─────────────────────────────────────────────────
+// ── CLOSING (Merged Logic & UI) ─────────────────────────────
 
 export function ClosingStepView({
   queuePosition, referralCode, positionBoost,
@@ -665,12 +713,12 @@ export function ClosingStepView({
   positionBoost: number;
 }) {
   const [copied, setCopied] = useState(false);
+  // Mantuve "BrutalDropBot" como tenías originalmente en vez del "BBBrutalbot" de Figma Make
   const referralLink = `https://t.me/BrutalDropBot?startapp=ref_${referralCode}`;
   const whatsappMsg = `Metete en BRUTAL. Es una app donde respondes preguntas anonimas y cobras cash real. Usa mi link y salto la fila: ${referralLink}`;
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(whatsappMsg)}`;
 
   const effectivePosition = Math.max(1, queuePosition - positionBoost);
-  const barPercent = Math.max(5, Math.min(95, 100 - (effectivePosition / 2500) * 100));
 
   const handleCopy = () => {
     try {
@@ -682,53 +730,109 @@ export function ClosingStepView({
   };
 
   return (
-    <div className="flex flex-col flex-1 justify-center items-center">
-      <h1 className="font-['Silkscreen'] text-[28px] text-center mb-4" style={{ color: "var(--dynamic-fg, #fff)" }}>
-        Estas en la fila.
+    <div className="flex flex-col flex-1 items-center px-2 pt-6">
+      {/* Title */}
+      <h1
+        className="font-['Silkscreen'] text-[29px] text-center mb-6"
+        style={{ color: "var(--dynamic-fg, #fff)" }}
+      >
+        Estas en la fila
       </h1>
 
-      <div className="w-full max-w-[340px] mb-6">
-        <p className="font-['Fira_Code'] text-[14px] text-center mb-2" style={{ color: "var(--dynamic-fg, #fff)" }}>
-          Tu posicion: <span className="font-bold">#{effectivePosition}</span>
-        </p>
-        <div className="w-full h-[8px] rounded-full overflow-hidden" style={{ backgroundColor: "var(--dynamic-fg, #fff)", opacity: 0.15 }}>
-          <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${barPercent}%`, backgroundColor: "var(--dynamic-fg, #fff)" }} />
+      {/* Position card */}
+      <div
+        className="w-full max-w-[320px] rounded-[12px] px-5 pt-5 pb-4 mb-6"
+        style={{ backgroundColor: "var(--dynamic-fg, #fff)" }}
+      >
+        <div className="flex items-center justify-between mb-2">
+          <span
+            className="font-['Fira_Code'] font-semibold text-[17px]"
+            style={{ color: "var(--dynamic-bg, #000)" }}
+          >
+            Tu posicion
+          </span>
+          <span
+            className="font-['Roboto'] font-bold text-[12px] px-2.5 py-1 rounded-[5px] tracking-tight"
+            style={{
+              backgroundColor: "var(--dynamic-bg, #000)",
+              color: "var(--dynamic-fg, #fff)",
+            }}
+          >
+            #{effectivePosition}
+          </span>
         </div>
+
+        {/* Dashed separator */}
+        <div
+          className="w-full mb-3"
+          style={{
+            height: "0px",
+            borderTop: "1px dashed var(--dynamic-bg, #000)",
+            opacity: 0.3,
+          }}
+        />
+
+        {/* Boost info */}
         {positionBoost > 0 && (
-          <p className="font-['Fira_Code'] text-[11px] text-center mt-2 opacity-60" style={{ color: "var(--dynamic-fg, #fff)" }}>
-            Saltaste {positionBoost} posiciones por completar tu perfil
+          <p
+            className="font-['Fira_Code'] text-[14px]"
+            style={{ color: "var(--dynamic-bg, #000)" }}
+          >
+            Saltaste {positionBoost} lugares por completar tu perfil
           </p>
         )}
       </div>
 
-      <div className="w-full max-w-[340px] mb-6">
-        <p className="font-['Fira_Code'] text-[12px] opacity-60 text-center mb-4 leading-relaxed" style={{ color: "var(--dynamic-fg, #fff)" }}>
-          Te vamos a escribir por WhatsApp cuando sea tu turno con un link para entrar a Telegram.
-          Mientras tanto, cada amigo que invites y sea aceptado te sube 100 posiciones.
+      {/* Description */}
+      <div className="w-full max-w-[332px] mb-8">
+        <p
+          className="font-['Roboto'] text-[16px] leading-[22px]"
+          style={{ color: "var(--dynamic-fg, #fff)" }}
+        >
+          Te vamos a escribir por whatsapp y telegram cuando hayamos procesado tu perfil.
+        </p>
+        <p
+          className="font-['Roboto'] text-[16px] leading-[22px] mt-4"
+          style={{ color: "var(--dynamic-fg, #fff)" }}
+        >
+          Mientras tanto, cada amigo que invite y sea aceptado te sube 100 posiciones.
         </p>
       </div>
 
-      {/* Share buttons */}
-      <div className="w-full max-w-[340px] flex flex-col gap-3">
+      {/* Buttons */}
+      <div className="w-full max-w-[332px] mt-auto flex flex-col gap-3 mb-4">
         <a
           href={whatsappUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="w-full h-[56px] rounded-full flex items-center justify-center active:scale-[0.98] transition-transform"
-          style={{ backgroundColor: "#25D366" }}
+          className="w-full h-[64px] rounded-[8px] flex items-center justify-center active:scale-[0.98] transition-transform"
+          style={{ backgroundColor: "var(--dynamic-fg, #fff)" }}
           onClick={() => hapticMedium()}
         >
-          <span className="font-['Roboto'] font-semibold text-[16px] text-white">
-            INVITAR POR WHATSAPP
+          <span
+            className="font-['Roboto'] font-semibold text-[21px]"
+            style={{ color: "var(--dynamic-bg, #000)" }}
+          >
+            Invitar por whatsapp
           </span>
         </a>
 
-        <ActionButton label={copied ? "COPIADO" : "COPIAR MI LINK"} onClick={handleCopy} variant="outline" />
+        <button
+          onClick={handleCopy}
+          className="w-full h-[64px] rounded-[8px] flex items-center justify-center active:scale-[0.98] transition-transform border-2"
+          style={{
+            borderColor: "var(--dynamic-fg, #fff)",
+            backgroundColor: "transparent",
+          }}
+        >
+          <span
+            className="font-['Roboto'] font-semibold text-[21px]"
+            style={{ color: "var(--dynamic-fg, #fff)" }}
+          >
+            {copied ? "Copiado ✓" : "Copiar mi link"}
+          </span>
+        </button>
       </div>
-
-      <p className="font-['Fira_Code'] text-[11px] opacity-30 mt-8 text-center" style={{ color: "var(--dynamic-fg, #fff)" }}>
-        BRUTAL. No preguntamos para saber.{"\n"}Preguntamos para que cobres.
-      </p>
     </div>
   );
 }
