@@ -510,16 +510,26 @@ app.post("/sessions/start", requireTelegram, async (c) => {
 
 app.post("/sessions/complete", requireTelegram, async (c) => {
   const user = c.get("tgUser");
-  const { session_id, archetype_result, bic_scores } = await c.req.json();
+  const { session_id, archetype_result, bic_scores, multiplier: clientMultiplier } = await c.req.json();
   if (!session_id) return c.json({ error: "session_id required" }, 400);
   const node = await resolveNode(user.id);
   if (!node) return c.json({ error: "Not authorized" }, 403);
+  const finalMultiplier = clientMultiplier || 1;
+
+  // Update session multiplier first so it's recorded
+  await db().from("sessions").update({ multiplier: finalMultiplier }).eq("session_id", session_id);
+
   const { data: rewards } = await db().from("responses")
     .select("reward_type, reward_value, reward_granted").eq("session_id", session_id);
-  const totalCash = rewards?.filter(r => r.reward_type === "cash" && r.reward_granted)
-    .reduce((s, r) => s + (r.reward_value || 0), 0) || 0;
-  const totalTickets = rewards?.filter(r => r.reward_type === "golden_ticket" && r.reward_granted)
-    .reduce((s, r) => s + (r.reward_value || 0), 0) || 0;
+  // Base totals from responses (stored without multiplier)
+  const baseCash = rewards?.filter(r => r.reward_type === "cash" && r.reward_granted)
+    .reduce((s, r) => s + Number(r.reward_value || 0), 0) || 0;
+  const baseTickets = rewards?.filter(r => r.reward_type === "golden_ticket" && r.reward_granted)
+    .reduce((s, r) => s + Number(r.reward_value || 0), 0) || 0;
+  // Apply multiplier for final totals
+  const totalCash = Number((baseCash * finalMultiplier).toFixed(4));
+  const totalTickets = Math.round(baseTickets * finalMultiplier);
+
   const { data: traps } = await db().from("responses")
     .select("question_type, raw_response").eq("session_id", session_id)
     .in("question_type", ["trap", "trap_silent"]);
@@ -532,18 +542,32 @@ app.post("/sessions/complete", requireTelegram, async (c) => {
   const { error } = await db().from("sessions").update({
     status: "completed", completed_at: new Date().toISOString(),
     total_cash_earned: totalCash, total_tickets_earned: totalTickets,
+    multiplier: finalMultiplier,
     trap_score: trapsPassed, traps_passed: trapsPassed, traps_failed: trapsFailed,
     avg_latency_ms: avgLatency,
     archetype_result: archetype_result || null, bic_scores: bic_scores || null,
   }).eq("session_id", session_id).eq("node_id", node.node_id);
   if (error) return c.json({ error: error.message }, 500);
-  const { data: prof } = await db().from("profiles").select("drops_completed").eq("node_id", node.node_id).single();
+
+  // Update profile with multiplied totals
+  const { data: prof } = await db().from("profiles")
+    .select("drops_completed, cash_balance, cash_lifetime, tickets_current, tickets_lifetime")
+    .eq("node_id", node.node_id).single();
   if (prof) {
+    // Calculate the multiplier bonus (difference between multiplied and base)
+    const cashBonus = totalCash - baseCash;
+    const ticketBonus = totalTickets - baseTickets;
     await db().from("profiles").update({
-      drops_completed: (prof.drops_completed || 0) + 1, last_drop_at: new Date().toISOString(),
+      drops_completed: (prof.drops_completed || 0) + 1,
+      last_drop_at: new Date().toISOString(),
+      // Add multiplier bonus to profile (base rewards already added per-response)
+      cash_balance: Number(prof.cash_balance || 0) + cashBonus,
+      cash_lifetime: Number(prof.cash_lifetime || 0) + cashBonus,
+      tickets_current: (prof.tickets_current || 0) + ticketBonus,
+      tickets_lifetime: (prof.tickets_lifetime || 0) + ticketBonus,
     }).eq("node_id", node.node_id);
   }
-  // Send bot message with rewards summary
+  // Send bot message with rewards summary (with multiplier applied)
   try {
     const { data: channel } = await db().from("node_channels")
       .select("channel_identifier").eq("node_id", node.node_id).eq("channel", "telegram").single();
@@ -551,8 +575,9 @@ app.post("/sessions/complete", requireTelegram, async (c) => {
       const tgChatId = channel.channel_identifier;
       const cashStr = totalCash > 0 ? `💰 $${Number(totalCash).toFixed(2)}` : "";
       const ticketStr = totalTickets > 0 ? `🎟️ ${totalTickets} tickets` : "";
+      const multStr = finalMultiplier > 1 ? ` (x${finalMultiplier})` : "";
       const rewardLine = [cashStr, ticketStr].filter(Boolean).join("  +  ");
-      const msgText = `✅ *Drop completado*\n\n${rewardLine || "Sin rewards esta vez"}\n\nMirá cómo te fue:`;
+      const msgText = `✅ *Drop completado*${multStr}\n\n${rewardLine || "Sin rewards esta vez"}\n\nMirá cómo te fue:`;
       await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
