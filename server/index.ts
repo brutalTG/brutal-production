@@ -888,7 +888,7 @@ app.post("/apply", async (c) => {
   const { count: pendingCount } = await db()
     .from("nodes").select("*", { count: "exact", head: true })
     .in("status", ["pending", "active"]);
-  const queuePosition = pendingCount || 1;
+  const queuePosition = (pendingCount || 1) + 642;
 
   if (telegramUserId && botToken()) {
     try {
@@ -1081,13 +1081,17 @@ app.put("/apply/:nodeId/complete", async (c) => {
 
   if (channel?.channel_identifier && botToken()) {
     const { count } = await db().from("nodes").select("*", { count: "exact", head: true }).in("status", ["pending", "active"]);
+    
+    // MAGIA: Calculamos la posición acá también
+    const queuePosition = (count || 1) + 642;
+    
     try {
       await fetch(`https://api.telegram.org/bot${botToken()}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chat_id: channel.channel_identifier,
-          text: `✅ <b>Registro completo</b>\n\nTu posición en la fila: <b>#${count || 1}</b>\n\nActivá las notificaciones 🔔 que te vamos a avisar por acá cuando estés dentro y tengas un Drop activo para jugar.\n\nTu link de invitación: <b>t.me/BrutalDropBot?start=${updated?.referral_code || ""}</b>\nCompartilo con amigos para subir en la fila.`,
+          text: `✅ <b>Registro completo</b>\n\nTu posición en la fila: <b>#${queuePosition}</b>\n\nActivá las notificaciones 🔔 que te vamos a avisar por acá cuando estés dentro y tengas un Drop activo para jugar.\n\nTu link de invitación: <b>t.me/BrutalDropBot?start=${updated?.referral_code || ""}</b>\nCompartilo con amigos para subir en la fila.`,
           parse_mode: "HTML",
         }),
       });
