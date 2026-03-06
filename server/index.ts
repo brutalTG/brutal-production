@@ -118,11 +118,11 @@ async function resolveNode(telegramUserId: string | number) {
   if (!ch) return null;
   const { data: node } = await db()
     .from("nodes")
-    .select("node_id, status")
+    .select("node_id, status, nickname") // <-- ACÁ AGREGAMOS NICKNAME
     .eq("node_id", ch.node_id)
     .single();
   if (!node) return null;
-  return { node_id: node.node_id, status: node.status };
+  return { node_id: node.node_id, status: node.status, nickname: node.nickname }; // <-- ACÁ LO DEVOLVEMOS
 }
 
 async function anonId(nodeId: string) {
@@ -1781,39 +1781,77 @@ app.post("/bot/webhook", async (c) => {
     return c.json({ ok: true });
   }
 
+  // Handle /start command — smart routing y Captura ToFu (Top of Funnel)
   if (update.message?.text?.startsWith("/start")) {
     const chatId = update.message.chat.id;
     const userId = update.message.from.id;
-    const firstName = update.message.from.first_name || "Node";
-    const node = await resolveNode(userId);
     
+    const node = await resolveNode(userId);
+    const displayName = node?.nickname || "Node";
+    
+    // Not registered -> Creamos el cascarón (ToFu) y damos la bienvenida inicial
     if (!node) {
+      const { data: newNode } = await db().from("nodes").insert({
+        status: "incomplete", 
+        onboarding_step: 1
+      }).select("node_id").single();
+      
+      if (newNode) {
+        await db().from("node_channels").insert({
+          node_id: newNode.node_id, channel: "telegram", channel_identifier: String(userId), is_primary: true
+        });
+        await db().from("profiles").insert({
+          node_id: newNode.node_id, cash_balance: 0, cash_lifetime: 0, cash_withdrawn: 0,
+          tickets_current: 0, tickets_lifetime: 0, drops_completed: 0, bot_questions_answered: 0,
+          traps_passed: 0, traps_failed: 0, current_streak: 0, best_streak: 0,
+        });
+        const newAnon = "anon_" + crypto.randomUUID().replace(/-/g, "").slice(0, 32);
+        await db().from("anonymous_id_map").insert({ node_id: newNode.node_id, anonymous_id: newAnon });
+      }
+
       await tgSend("sendMessage", {
-        chat_id: chatId, text: `⚡ <b>BRUTAL</b>\n\nHola ${firstName}.\n\nRegistrate para jugar Drops, ganar plata real y competir por premios.`,
-        parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🔥 Entrar", web_app: { url: `https://brutal-production-production-24da.up.railway.app/entrar` } }]] }
+        chat_id: chatId,
+        text: `⚡ <b>BRUTAL</b>\n\nHola.\n\nRegistrate para jugar Drops, ganar plata real y competir por premios.`,
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [[
+          { text: "🔥 Entrar", web_app: { url: `https://brutal-production-production-24da.up.railway.app/entrar` } }
+        ]] }
       });
       return c.json({ ok: true });
     }
+    
+    // Pending/incomplete/blocked (el usuario ya está en la DB)
     if (node.status !== "active") {
+      const nameStr = displayName !== "Node" ? ` ${displayName}` : "";
       const msgs: any = {
-        pending: `⏳ Hola ${firstName}, tu cuenta está en revisión. Te avisamos cuando estés dentro.`,
-        incomplete: `📝 Hola ${firstName}, te falta completar el registro.`,
+        pending: `⏳ Hola${nameStr}, tu cuenta está en revisión. Te avisamos cuando estés dentro.`,
+        incomplete: `📝 Hola${nameStr}, te falta completar el registro.`,
         blocked: "🚫 Tu cuenta fue suspendida.",
         rejected: "❌ Tu solicitud no fue aprobada.",
       };
       await tgSend("sendMessage", {
-        chat_id: chatId, text: msgs[node.status] || "⚠️ Tu cuenta no está activa.", parse_mode: "HTML",
-        ...(node.status === "incomplete" ? { reply_markup: { inline_keyboard: [[{ text: "📝 Completar registro", web_app: { url: `https://brutal-production-production-24da.up.railway.app/entrar` } }]] } } : {})
+        chat_id: chatId,
+        text: msgs[node.status] || "⚠️ Tu cuenta no está activa.",
+        parse_mode: "HTML",
+        ...(node.status === "incomplete" ? { reply_markup: { inline_keyboard: [[
+          { text: "📝 Completar registro", web_app: { url: `https://brutal-production-production-24da.up.railway.app/entrar` } }
+        ]] } } : {})
       });
       return c.json({ ok: true });
     }
+    
+    // Active user — welcome back
     await tgSend("sendMessage", {
-      chat_id: chatId, text: `⚡ <b>BRUTAL</b>\n\nBienvenido de vuelta, ${firstName}.\n\nUsá /drop para jugar, /perfil para ver tu balance, /leaderboard para el ranking.`,
-      parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "▶️ Jugar Drop", web_app: { url: `https://brutal-production-production-24da.up.railway.app` } }]] }
+      chat_id: chatId,
+      text: `⚡ <b>BRUTAL</b>\n\nBienvenido de vuelta, ${displayName}.\n\nUsá /drop para jugar, /perfil para ver tu balance, /leaderboard para el ranking.`,
+      parse_mode: "HTML",
+      reply_markup: { inline_keyboard: [[
+        { text: "▶️ Jugar Drop", web_app: { url: `https://brutal-production-production-24da.up.railway.app` } }
+      ]] }
     });
     return c.json({ ok: true });
   }
-
+  
   if (update.message?.text?.startsWith("/drop")) {
     const chatId = update.message.chat.id;
     const userId = update.message.from.id;
