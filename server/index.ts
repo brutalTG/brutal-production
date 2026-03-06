@@ -587,17 +587,46 @@ app.post("/sessions/complete", requireTelegram, async (c) => {
       tickets_lifetime: (prof.tickets_lifetime || 0) + ticketBonus,
     }).eq("node_id", node.node_id);
   }
-  // Send bot message with rewards summary (with multiplier applied)
+  // Bot message is now sent via POST /sessions/notify (called from frontend after claim animation)
+
+  return c.json({ ok: true, total_cash: totalCash, total_tickets: totalTickets,
+    trap_score: `${trapsPassed}/${traps?.length || 0}` });
+});
+
+// ============================================================================
+// SESSIONS — Notify (bot message after claim)
+// ============================================================================
+
+app.post("/sessions/notify", requireTelegram, async (c) => {
+  const user = c.get("tgUser");
+  const { session_id, total_cash, total_tickets, multiplier } = await c.req.json();
+  if (!session_id) return c.json({ error: "session_id required" }, 400);
+
+  const node = await resolveNode(user.id);
+  if (!node) return c.json({ error: "Not authorized" }, 403);
+
+  // Verify session belongs to this node
+  const { data: session } = await db().from("sessions")
+    .select("session_id, node_id, status")
+    .eq("session_id", session_id).eq("node_id", node.node_id).single();
+  if (!session) return c.json({ error: "Session not found" }, 404);
+
+  const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN
+    ? "https://" + process.env.RAILWAY_PUBLIC_DOMAIN
+    : "https://brutal-production-production-24da.up.railway.app";
+
   try {
     const { data: channel } = await db().from("node_channels")
       .select("channel_identifier").eq("node_id", node.node_id).eq("channel", "telegram").single();
+
     if (channel?.channel_identifier) {
       const tgChatId = channel.channel_identifier;
-      const cashStr = totalCash > 0 ? `💰 $${Number(totalCash).toFixed(2)}` : "";
-      const ticketStr = totalTickets > 0 ? `🎟️ ${totalTickets} tickets` : "";
-      const multStr = finalMultiplier > 1 ? ` (x${finalMultiplier})` : "";
+      const cashStr = total_cash > 0 ? `💰 $${Number(total_cash).toFixed(2)}` : "";
+      const ticketStr = total_tickets > 0 ? `🎟️ ${total_tickets} tickets` : "";
+      const multStr = multiplier > 1 ? ` (x${multiplier})` : "";
       const rewardLine = [cashStr, ticketStr].filter(Boolean).join("  +  ");
       const msgText = `✅ *Drop completado*${multStr}\n\n${rewardLine || "Sin rewards esta vez"}\n\nMirá cómo te fue:`;
+
       await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -607,20 +636,19 @@ app.post("/sessions/complete", requireTelegram, async (c) => {
           parse_mode: "Markdown",
           reply_markup: { inline_keyboard: [
             [
-              { text: "📊 Mi Perfil", web_app: { url: `${process.env.RAILWAY_PUBLIC_DOMAIN ? "https://" + process.env.RAILWAY_PUBLIC_DOMAIN : "https://brutal-production-production-24da.up.railway.app"}/?screen=profile` } },
-              { text: "🏆 Leaderboard", web_app: { url: `${process.env.RAILWAY_PUBLIC_DOMAIN ? "https://" + process.env.RAILWAY_PUBLIC_DOMAIN : "https://brutal-production-production-24da.up.railway.app"}/?screen=leaderboard` } },
+              { text: "📊 Mi Perfil", web_app: { url: `${baseUrl}/?screen=profile` } },
+              { text: "🏆 Leaderboard", web_app: { url: `${baseUrl}/?screen=leaderboard` } },
             ],
           ]},
         }),
       });
     }
   } catch (botErr) {
-    console.error("[BRUTAL] Post-drop bot message failed:", botErr);
-    // Non-blocking — don't fail the session complete
+    console.error("[BRUTAL] Notify bot message failed:", botErr);
+    // Non-blocking — still return ok
   }
 
-  return c.json({ ok: true, total_cash: totalCash, total_tickets: totalTickets,
-    trap_score: `${trapsPassed}/${traps?.length || 0}` });
+  return c.json({ ok: true });
 });
 
 // ============================================================================
