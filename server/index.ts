@@ -866,7 +866,7 @@ app.post("/apply", async (c) => {
           text: `✅ <b>Registro completo</b>\n\n` +
             `Tu posición en la fila: <b>#${position}</b>\n\n` +
             `Activá las notificaciones 🔔 que te vamos a avisar por acá cuando estés dentro y tengas un Drop activo para jugar.\n\n` +
-            `Código de referido: <code>${newNode.referral_code}</code>\nCompartilo con amigos para subir en la fila.`,
+            `Tu link de invitación: <b>t.me/BrutalDropBot?start=${newNode.referral_code}</b>\nCompartilo con amigos para subir en la fila.`,
           parse_mode: "HTML",
         }),
       });
