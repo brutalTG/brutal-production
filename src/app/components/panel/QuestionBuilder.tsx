@@ -16,7 +16,7 @@ import {
   Link2,
   Tag,
 } from "lucide-react";
-import type { Question, RafagaItem } from "../drop-types";
+import type { Question, RafagaItem, RafagaBurstItem } from "../drop-types";
 import {
   type PanelQuestion,
   type QuestionType,
@@ -268,6 +268,93 @@ function RafagaItemsField({
   );
 }
 
+function RafagaBurstItemsField({
+  items,
+  onChange,
+}: {
+  items: RafagaBurstItem[];
+  onChange: (items: RafagaBurstItem[]) => void;
+}) {
+  const addItem = () => {
+    onChange([...items, {
+      trigger: { type: "text", text: "" },
+      interaction: { type: "emoji_binary", emojiA: "👍", emojiB: "👎" }
+    }]);
+  };
+  const removeItem = (i: number) => {
+    if (items.length <= 1) return;
+    onChange(items.filter((_, idx) => idx !== i));
+  };
+  const updateTrigger = (i: number, text: string) => {
+    const next = [...items];
+    next[i] = { ...next[i], trigger: { type: "text", text } };
+    onChange(next);
+  };
+  const updateInteraction = (i: number, field: "emojiA" | "emojiB", value: string) => {
+    const next = [...items];
+    if (next[i].interaction.type === "emoji_binary") {
+      next[i] = {
+        ...next[i],
+        interaction: { ...next[i].interaction, [field]: value }
+      };
+    }
+    onChange(next);
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-xs font-medium uppercase tracking-wider" style={labelStyle}>Items de ráfaga burst</label>
+      <div className="flex flex-col gap-3">
+        {items.map((item, i) => (
+          <div key={i} className="rounded-lg p-3 flex flex-col gap-2" style={{ backgroundColor: "var(--p-bg-input)", border: "1px solid var(--p-border-subtle)" }}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <GripVertical size={14} style={{ color: "var(--p-text-ghost)" }} />
+                <span className="text-xs font-['Fira_Code']" style={{ color: "var(--p-text-faint)" }}>#{i + 1}</span>
+              </div>
+              {items.length > 1 && (
+                <button onClick={() => removeItem(i)} className="p-1 transition-colors" style={{ color: "var(--p-text-ghost)" }} onMouseEnter={(e) => { e.currentTarget.style.color = "var(--p-danger)"; }} onMouseLeave={(e) => { e.currentTarget.style.color = "var(--p-text-ghost)"; }}>
+                  <Trash2 size={12} />
+                </button>
+              )}
+            </div>
+            <input
+              className="w-full rounded px-2.5 py-1.5 text-sm focus:outline-none"
+              style={inputStyle}
+              value={item.trigger.type === "text" ? item.trigger.text : ""}
+              onChange={(e) => updateTrigger(i, e.target.value)}
+              placeholder="Texto trigger"
+            />
+            <div className="flex gap-2">
+              <input
+                className="flex-1 rounded px-2.5 py-1.5 text-sm focus:outline-none"
+                style={inputStyle}
+                value={item.interaction.type === "emoji_binary" ? item.interaction.emojiA : ""}
+                onChange={(e) => updateInteraction(i, "emojiA", e.target.value)}
+                placeholder="Emoji A"
+              />
+              <input
+                className="flex-1 rounded px-2.5 py-1.5 text-sm focus:outline-none"
+                style={inputStyle}
+                value={item.interaction.type === "emoji_binary" ? item.interaction.emojiB : ""}
+                onChange={(e) => updateInteraction(i, "emojiB", e.target.value)}
+                placeholder="Emoji B"
+              />
+            </div>
+          </div>
+        ))}
+        <button
+          onClick={addItem}
+          className="flex items-center gap-1.5 text-xs py-1.5 transition-colors"
+          style={{ color: "var(--p-text-faint)" }}
+        >
+          <Plus size={12} /> Agregar item
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SelectField({
   label,
   value,
@@ -494,6 +581,40 @@ function TypeSpecificFields({
           <TextField label="Prompt bold" value={d.promptBold} onChange={(v) => onChange({ promptBold: v } as any)} />
           <NumberField label="Segundos por item" value={d.secondsPerItem ?? 3} onChange={(v) => onChange({ secondsPerItem: v } as any)} min={1} max={10} suffix="seg" />
           <RafagaItemsField items={d.items || []} onChange={(v) => onChange({ items: v } as any)} emojiMode />
+        </>
+      );
+
+    case "rafaga_burst":
+      return (
+        <>
+          <TextField 
+            label="Pre-screen title" 
+            value={d.preScreen?.title ?? ""} 
+            onChange={(v) => onChange({ 
+              preScreen: { ...d.preScreen, title: v, subtitle: d.preScreen?.subtitle ?? "Respondé rápido", durationMs: d.preScreen?.durationMs ?? 2500 } 
+            } as any)} 
+            placeholder="RÁFAGA BURST" 
+          />
+          <TextField 
+            label="Pre-screen subtitle" 
+            value={d.preScreen?.subtitle ?? ""} 
+            onChange={(v) => onChange({ 
+              preScreen: { ...d.preScreen, title: d.preScreen?.title ?? "RÁFAGA BURST", subtitle: v, durationMs: d.preScreen?.durationMs ?? 2500 } 
+            } as any)} 
+            placeholder="Respondé rápido" 
+          />
+          <NumberField 
+            label="Pre-screen duración (ms)" 
+            value={d.preScreen?.durationMs ?? 2500} 
+            onChange={(v) => onChange({ 
+              preScreen: { ...d.preScreen, title: d.preScreen?.title ?? "RÁFAGA BURST", subtitle: d.preScreen?.subtitle ?? "Respondé rápido", durationMs: v } 
+            } as any)} 
+            min={1000} 
+            max={5000} 
+            suffix="ms" 
+          />
+          <NumberField label="Segundos por item" value={d.secondsPerItem ?? 3} onChange={(v) => onChange({ secondsPerItem: v } as any)} min={1} max={10} suffix="seg" />
+          <RafagaBurstItemsField items={d.items || []} onChange={(v) => onChange({ items: v } as any)} />
         </>
       );
 
