@@ -193,6 +193,67 @@ export interface MediaReactionQuestion {
   max?: number;
 }
 
+// --- Ráfaga Burst (P5 - Modelo extendido) ---
+
+export interface RafagaBurstTrigger {
+  /** Tipo de disparador visual */
+  type: "text" | "image" | "image_text";
+  /** Texto del disparador (requerido para "text" y "image_text") */
+  text?: string;
+  /** URL de imagen fullscreen (requerido para "image" y "image_text") */
+  imageUrl?: string;
+}
+
+export interface RafagaBurstInteraction {
+  /** Tipo de interacción */
+  type: "emoji_binary" | "button_binary" | "slider";
+  
+  // Para emoji_binary
+  /** Emoji opción A (requerido para emoji_binary) */
+  emojiA?: string;
+  /** Emoji opción B (requerido para emoji_binary) */
+  emojiB?: string;
+  
+  // Para button_binary
+  /** Texto/emoji opción A (requerido para button_binary) */
+  buttonA?: string;
+  /** Texto/emoji opción B (requerido para button_binary) */
+  buttonB?: string;
+  
+  // Para slider
+  /** Configuración del slider (requerido para slider) */
+  sliderConfig?: {
+    min: number;
+    max: number;
+    labelLeft: string;
+    labelRight: string;
+  };
+}
+
+export interface RafagaBurstItem {
+  /** Disparador visual de la pregunta */
+  trigger: RafagaBurstTrigger;
+  /** Tipo de interacción para responder */
+  interaction: RafagaBurstInteraction;
+}
+
+export interface RafagaBurstQuestion {
+  type: "rafaga_burst";
+  /** Pantalla previa customizable (se muestra antes del countdown 3-2-1) */
+  preScreen: {
+    /** Título principal */
+    title: string;
+    /** Subtítulo opcional */
+    subtitle?: string;
+    /** Duración en ms de la pantalla previa (default: 2500) */
+    durationMs?: number;
+  };
+  /** Items de la ráfaga */
+  items: RafagaBurstItem[];
+  /** Segundos por item antes de auto-avanzar (default: 3) */
+  secondsPerItem?: number;
+}
+
 export type QuestionContent =
   | ChoiceQuestion
   | PredictionBetQuestion
@@ -210,7 +271,8 @@ export type QuestionContent =
   | SliderEmojiQuestion
   | RafagaEmojiQuestion
   | HotTakeVisualQuestion
-  | MediaReactionQuestion;
+  | MediaReactionQuestion
+  | RafagaBurstQuestion;
 
 // --- Question metadata (applies to all types) ---
 
