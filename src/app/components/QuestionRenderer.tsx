@@ -29,6 +29,7 @@ import { HotTakeVisualQuestion } from "./hot-take-visual-question";
 import { MediaReactionQuestion } from "./media-reaction-question";
 import { DeadDropScreen } from "./dead-drop-screen";
 import { resolveDeadDrop } from "./dead-drop-resolver";
+import { RafagaBurstQuestion } from "./rafaga-burst-question";
 
 interface Props {
   question: Question;
@@ -350,6 +351,27 @@ export function QuestionRenderer({
               return null;
             });
             pipeline.submitStandard({ type: "rafaga", answers: abAnswers, latencyMs });
+          }}
+        />
+      )}
+
+      {q.type === "rafaga_burst" && (
+        <RafagaBurstQuestion
+          preScreen={q.preScreen}
+          items={q.items}
+          secondsPerItem={q.secondsPerItem}
+          onComplete={(answers) => {
+            if (!pipeline.acquireLock()) return;
+            pipeline.markFirstAnswered();
+            const latencyMs = pipeline.captureLatency();
+            // Para rafaga_burst, las respuestas pueden ser emojis, texto o números
+            // Convertimos a formato simplificado para archetype engine
+            const mixedAnswers = answers.map((a) => {
+              if (a === null) return null;
+              // Si es string, lo dejamos como está; si es número, lo convertimos a string
+              return String(a);
+            });
+            pipeline.submitStandard({ type: "rafaga_burst", answers: mixedAnswers, latencyMs });
           }}
         />
       )}
