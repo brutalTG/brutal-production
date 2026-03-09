@@ -105,6 +105,7 @@ function answerToPayloadFields(answer: UserAnswer): Record<string, any> {
       fields.ranking_result = answer.order;
       break;
     case "rafaga":
+    case "rafaga_burst":
       fields.rafaga_choices = answer.answers;
       break;
     case "trap":
