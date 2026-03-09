@@ -425,7 +425,7 @@ export type QuestionType = Question["type"];
 export const QUESTION_TYPE_CATEGORIES: Record<string, { label: string; types: QuestionType[] }> = {
   basic: { label: "Básico", types: ["choice", "slider", "confesionario"] },
   visual: { label: "Visual", types: ["choice_emoji", "choice_hybrid", "slider_emoji", "binary_media", "hot_take_visual", "media_reaction"] },
-  interactive: { label: "Interactivo", types: ["ranking", "prediction_bet", "rafaga", "rafaga_emoji", "hot_take"] },
+  interactive: { label: "Interactivo", types: ["ranking", "prediction_bet", "rafaga", "rafaga_emoji", "rafaga_burst", "hot_take"] },
   special: { label: "Especial", types: ["trap", "trap_silent", "dead_drop"] },
 };
 
@@ -434,14 +434,14 @@ export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
   slider: "Slider", binary_media: "Binary Media", rafaga: "Ráfaga", dead_drop: "Dead Drop",
   trap: "Trap", hot_take: "Hot Take", trap_silent: "Trap Silent", choice_emoji: "Choice Emoji",
   choice_hybrid: "Choice Hybrid", slider_emoji: "Slider Emoji", rafaga_emoji: "Ráfaga Emoji",
-  hot_take_visual: "Hot Take Visual", media_reaction: "Media Reaction",
+  hot_take_visual: "Hot Take Visual", media_reaction: "Media Reaction", rafaga_burst: "Ráfaga Burst",
 };
 
 export const QUESTION_TYPE_ICONS: Record<QuestionType, string> = {
   choice: "🔘", prediction_bet: "🎰", ranking: "📊", confesionario: "🤫", slider: "🎚️",
   binary_media: "🖼️", rafaga: "⚡", dead_drop: "💀", trap: "🪤", hot_take: "🔥",
   trap_silent: "🕵️", choice_emoji: "😀", choice_hybrid: "💬", slider_emoji: "🫠",
-  rafaga_emoji: "⚡😀", hot_take_visual: "🔥🖼️", media_reaction: "📸",
+  rafaga_emoji: "⚡😀", hot_take_visual: "🔥🖼️", media_reaction: "📸", rafaga_burst: "💥⚡",
 };
 
 export function getDefaultQuestionData(type: QuestionType): Question {
@@ -458,6 +458,17 @@ export function getDefaultQuestionData(type: QuestionType): Question {
     case "binary_media": return { ...base, type: "binary_media", imageUrl: "", optionA: "", optionB: "" };
     case "rafaga": return { ...base, timer: 0, type: "rafaga", prompt: "", promptBold: "", items: [{ text: "", optionA: "", optionB: "" }], secondsPerItem: 3 };
     case "rafaga_emoji": return { ...base, timer: 0, type: "rafaga_emoji", prompt: "", promptBold: "", items: [{ text: "", optionA: "😀", optionB: "😢" }], secondsPerItem: 3 };
+    case "rafaga_burst": return {
+      ...base,
+      timer: 0,
+      type: "rafaga_burst",
+      preScreen: { title: "RÁFAGA BURST", subtitle: "Respondé rápido", durationMs: 2500 },
+      items: [{
+        trigger: { type: "text", text: "" },
+        interaction: { type: "emoji_binary", emojiA: "👍", emojiB: "👎" }
+      }],
+      secondsPerItem: 3
+    };
     case "hot_take": return { ...base, type: "hot_take", text: "", options: ["", ""] };
     case "hot_take_visual": return { ...base, type: "hot_take_visual", text: "", options: ["", ""] };
     case "trap": return { ...base, type: "trap", text: "", options: ["", ""], correctIndex: 0, penalty: 50 };
