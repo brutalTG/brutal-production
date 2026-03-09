@@ -124,15 +124,17 @@ export function RafagaBurstQuestion({
   }, [total, doComplete, runBlinkAndAdvance]);
 
   // Auto-advance timer — only runs during "playing" phase
+  // For slider interactions, we pause the auto-timer (user must press Confirmar)
+  const isSlider = item?.interaction?.type === "slider";
   useEffect(() => {
-    if (phase !== "playing" || completedRef.current || transitioning) return;
+    if (phase !== "playing" || completedRef.current || transitioning || isSlider) return;
 
     timerRef.current = setTimeout(() => {
       advanceOrComplete();
     }, secondsPerItem * 1000);
 
     return clearTimer;
-  }, [phase, currentIdx, secondsPerItem, advanceOrComplete, transitioning]);
+  }, [phase, currentIdx, secondsPerItem, advanceOrComplete, transitioning, isSlider]);
 
   const handleSelect = useCallback(
     (value: string | number) => {
@@ -157,9 +159,9 @@ export function RafagaBurstQuestion({
     [total, doComplete, runBlinkAndAdvance]
   );
 
-  // Sub-timer progress bar — only runs during "playing" phase
+  // Sub-timer progress bar — only runs during "playing" phase (not for slider)
   useEffect(() => {
-    if (phase !== "playing" || completedRef.current || transitioning) return;
+    if (phase !== "playing" || completedRef.current || transitioning || isSlider) return;
     setSubProgress(100);
     const start = Date.now();
     const durationMs = secondsPerItem * 1000;
@@ -172,54 +174,20 @@ export function RafagaBurstQuestion({
     }, 30);
 
     return () => clearInterval(interval);
-  }, [phase, currentIdx, secondsPerItem, transitioning]);
+  }, [phase, currentIdx, secondsPerItem, transitioning, isSlider]);
 
   // === RENDER ===
 
-  // Phase 1: Pre-screen
+  // Phase 1: Pre-screen — fullscreen black, typewriter subtitle
   if (phase === "pre") {
-    return (
-      <div className="flex flex-col flex-1 items-center justify-center px-5">
-        <div
-          className="w-full max-w-md rounded-2xl flex flex-col items-center justify-center px-6 py-12 shadow-lg"
-          style={{ backgroundColor: "var(--dynamic-fg, #fff)" }}
-        >
-          <h1
-            className="font-['Roboto'] font-bold text-[32px] text-center leading-tight mb-3"
-            style={{ color: "var(--dynamic-bg, #000)" }}
-          >
-            {preScreen.title}
-          </h1>
-          {preScreen.subtitle && (
-            <p
-              className="font-['Roboto'] text-[16px] text-center opacity-70"
-              style={{ color: "var(--dynamic-bg, #000)" }}
-            >
-              {preScreen.subtitle}
-            </p>
-          )}
-          <div className="mt-8 flex items-center gap-2">
-            <div
-              className="w-2 h-2 rounded-full animate-pulse"
-              style={{ backgroundColor: "var(--dynamic-bg, #000)" }}
-            />
-            <span
-              className="font-['Fira_Code'] text-[13px] font-medium"
-              style={{ color: "var(--dynamic-bg, #000)" }}
-            >
-              Preparate...
-            </span>
-          </div>
-        </div>
-      </div>
-    );
+    return <PreScreen title={preScreen.title} subtitle={preScreen.subtitle} />;
   }
 
   // Phase 2: Countdown (3-2-1)
   if (phase === "countdown") {
     return (
       <div
-        className="flex items-center justify-center h-dvh bg-[#000] overflow-hidden"
+        className="flex items-center justify-center h-dvh bg-black overflow-hidden"
         style={{
           paddingTop: "var(--tg-safe-top, 0px)",
           paddingBottom: "var(--tg-safe-bottom, 0px)",
@@ -228,7 +196,6 @@ export function RafagaBurstQuestion({
         <span
           className="font-['Roboto'] font-bold text-white text-[128px] text-center leading-none select-none"
           style={{
-            transform: `scale(1)`,
             transition: "transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)",
             opacity: countdownValue >= 0 ? 1 : 0,
           }}
@@ -240,187 +207,218 @@ export function RafagaBurstQuestion({
   }
 
   // Phase 3: Playing
-  return (
-    <div className="flex flex-col flex-1">
-      <div
-        className="w-full rounded-2xl flex flex-col px-5 pt-6 pb-6 shadow-lg mx-auto overflow-hidden"
-        style={{ backgroundColor: "var(--dynamic-fg, #fff)" }}
-      >
-        {/* Counter pill */}
-        <span
-          className="font-['Roboto'] font-semibold text-[14px] tracking-[-0.14px] mb-3 text-center"
-          style={{ color: "var(--dynamic-bg, #000)" }}
-        >
-          {currentIdx + 1} / {total}
-        </span>
+  const hasImage = item.trigger.type === "image" || item.trigger.type === "image_text";
 
-        {/* Content with blink transition */}
-        <div style={{ opacity: blinkOpacity }}>
-          <RafagaBurstItemRenderer
-            item={item}
-            selectedValue={selectedValue}
-            onSelect={handleSelect}
-          />
-        </div>
+  if (hasImage) {
+    // === IMAGE LAYOUT: fullscreen image bg, gradient, lower-third interaction ===
+    return (
+      <div className="relative h-dvh bg-black overflow-hidden">
+        {/* Fullscreen image background */}
+        <img
+          src={item.trigger.imageUrl}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{ opacity: blinkOpacity }}
+        />
 
-        {/* Dot indicators */}
-        <div className="flex items-center gap-[6px] mt-5 justify-center">
-          {items.map((_, i) => (
-            <div key={i}>
-              {i <= currentIdx ? (
-                <div
-                  className="w-[11px] h-[11px] rounded-full"
-                  style={{ backgroundColor: "var(--dynamic-bg, #000)" }}
-                />
-              ) : (
-                <div
-                  className="w-[11px] h-[11px] rounded-full border-2 bg-transparent"
-                  style={{ borderColor: "var(--dynamic-bg, #000)" }}
-                />
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Sub-timer bar */}
+        {/* Bottom gradient overlay */}
         <div
-          className="w-full h-[3px] rounded-full mt-4 overflow-hidden"
+          className="absolute bottom-0 left-0 right-0 pointer-events-none"
           style={{
-            backgroundColor: "color-mix(in srgb, var(--dynamic-bg, #000) 15%, transparent)",
+            height: "300px",
+            background: "linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.7) 40%, transparent 100%)",
           }}
+        />
+
+        {/* Dot indicators (overlaid near top of image) */}
+        <div className="absolute top-0 left-0 right-0 z-20 flex flex-col items-center pt-4"
+          style={{ paddingTop: "calc(var(--tg-safe-top, 0px) + 16px)" }}
         >
-          <div
-            className="h-full rounded-full"
-            style={{
-              backgroundColor: "var(--dynamic-bg, #000)",
-              width: `${subProgress}%`,
-              transition: "width 0.03s linear",
-            }}
-          />
+          <div className="flex items-center gap-[6px]">
+            {items.map((_, i) => (
+              <div key={i}>
+                {i <= currentIdx ? (
+                  <div className="w-[11px] h-[11px] rounded-full bg-white" />
+                ) : (
+                  <div className="w-[11px] h-[11px] rounded-full border-2 border-white bg-transparent" />
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Sub-timer bar */}
+          {!isSlider && (
+            <div className="w-[80%] h-[3px] rounded-full mt-3 overflow-hidden"
+              style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
+            >
+              <div
+                className="h-full rounded-full bg-white"
+                style={{ width: `${subProgress}%`, transition: "width 0.03s linear" }}
+              />
+            </div>
+          )}
         </div>
-      </div>
-    </div>
-  );
-}
 
-// === SUB-COMPONENTS ===
+        {/* Lower third interaction area */}
+        <div className="absolute bottom-0 left-0 right-0 z-20 px-6 flex flex-col items-center"
+          style={{ paddingBottom: "calc(var(--tg-safe-bottom, 0px) + 24px)" }}
+        >
+          <div className="w-full" style={{ opacity: blinkOpacity }}>
+            {/* image_text overlay label */}
+            {item.trigger.type === "image_text" && item.trigger.text && (
+              <p className="font-['Roboto'] font-bold text-[31px] text-white text-center leading-tight mb-5">
+                {item.trigger.text}
+              </p>
+            )}
 
-interface RafagaBurstItemRendererProps {
-  item: RafagaBurstItem;
-  selectedValue: string | number | null;
-  onSelect: (value: string | number) => void;
-}
-
-function RafagaBurstItemRenderer({ item, selectedValue, onSelect }: RafagaBurstItemRendererProps) {
-  const { trigger, interaction } = item;
-
-  return (
-    <div className="flex flex-col">
-      {/* Trigger */}
-      <TriggerRenderer trigger={trigger} />
-
-      {/* Interaction */}
-      <div className="mt-6">
-        <InteractionRenderer
-          interaction={interaction}
-          selectedValue={selectedValue}
-          onSelect={onSelect}
-        />
-      </div>
-    </div>
-  );
-}
-
-interface TriggerRendererProps {
-  trigger: RafagaBurstItem["trigger"];
-}
-
-function TriggerRenderer({ trigger }: TriggerRendererProps) {
-  if (trigger.type === "text") {
-    return (
-      <h2
-        className="font-['Roboto'] font-bold text-[28px] text-center leading-tight"
-        style={{ color: "var(--dynamic-bg, #000)" }}
-      >
-        {trigger.text}
-      </h2>
-    );
-  }
-
-  if (trigger.type === "image") {
-    return (
-      <div className="w-full aspect-[4/3] rounded-xl overflow-hidden bg-black/5">
-        <img
-          src={trigger.imageUrl}
-          alt=""
-          className="w-full h-full object-cover"
-        />
-      </div>
-    );
-  }
-
-  if (trigger.type === "image_text") {
-    return (
-      <div className="relative w-full aspect-[4/3] rounded-xl overflow-hidden">
-        <img
-          src={trigger.imageUrl}
-          alt=""
-          className="w-full h-full object-cover"
-        />
-        {/* Text overlay with gradient background */}
-        <div className="absolute inset-0 flex items-end">
-          <div
-            className="w-full p-4"
-            style={{
-              background:
-                "linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 60%, transparent 100%)",
-            }}
-          >
-            <h2 className="font-['Roboto'] font-bold text-[24px] text-white leading-tight">
-              {trigger.text}
-            </h2>
+            <InteractionRenderer
+              interaction={item.interaction}
+              selectedValue={selectedValue}
+              onSelect={handleSelect}
+              variant="image"
+            />
           </div>
         </div>
       </div>
     );
   }
 
-  return null;
+  // === TEXT LAYOUT: black bg, centered text, interaction below ===
+  return (
+    <div className="relative h-dvh bg-black overflow-hidden flex flex-col"
+      style={{
+        paddingTop: "var(--tg-safe-top, 0px)",
+        paddingBottom: "var(--tg-safe-bottom, 0px)",
+      }}
+    >
+      {/* Dot indicators at top */}
+      <div className="flex flex-col items-center pt-4">
+        <div className="flex items-center gap-[6px]">
+          {items.map((_, i) => (
+            <div key={i}>
+              {i <= currentIdx ? (
+                <div className="w-[11px] h-[11px] rounded-full bg-white" />
+              ) : (
+                <div className="w-[11px] h-[11px] rounded-full border-2 border-white bg-transparent" />
+              )}
+            </div>
+          ))}
+        </div>
+        {!isSlider && (
+          <div className="w-[80%] h-[3px] rounded-full mt-3 overflow-hidden"
+            style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
+          >
+            <div
+              className="h-full rounded-full bg-white"
+              style={{ width: `${subProgress}%`, transition: "width 0.03s linear" }}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Center: text + interaction */}
+      <div className="flex-1 flex flex-col items-center justify-center px-6" style={{ opacity: blinkOpacity }}>
+        {/* Text trigger */}
+        <h2 className="font-['Roboto'] font-bold text-[39px] text-white text-center leading-tight mb-12">
+          {item.trigger.text}
+        </h2>
+
+        {/* Interaction below text */}
+        <div className="w-full">
+          <InteractionRenderer
+            interaction={item.interaction}
+            selectedValue={selectedValue}
+            onSelect={handleSelect}
+            variant="text"
+          />
+        </div>
+      </div>
+    </div>
+  );
 }
+
+// === PRE-SCREEN with typewriter ===
+
+function PreScreen({ title, subtitle }: { title: string; subtitle?: string }) {
+  const [displayedSubtitle, setDisplayedSubtitle] = useState("");
+  const [showCursor, setShowCursor] = useState(true);
+
+  useEffect(() => {
+    if (!subtitle) return;
+    let i = 0;
+    const interval = setInterval(() => {
+      if (i < subtitle.length) {
+        setDisplayedSubtitle(subtitle.slice(0, i + 1));
+        i++;
+      } else {
+        clearInterval(interval);
+      }
+    }, 40);
+    return () => clearInterval(interval);
+  }, [subtitle]);
+
+  // Blink cursor
+  useEffect(() => {
+    const interval = setInterval(() => setShowCursor((v) => !v), 500);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div
+      className="flex flex-col items-center justify-center h-dvh bg-black overflow-hidden px-8"
+      style={{
+        paddingTop: "var(--tg-safe-top, 0px)",
+        paddingBottom: "var(--tg-safe-bottom, 0px)",
+      }}
+    >
+      <h1 className="font-['Roboto'] font-bold text-[40px] text-white text-center leading-tight">
+        {title}
+      </h1>
+      {subtitle && (
+        <p className="font-['Roboto'] font-bold text-[34px] text-white text-center leading-tight mt-4">
+          {displayedSubtitle}
+          <span style={{ opacity: showCursor ? 1 : 0 }} className="inline-block w-[2px] h-[34px] bg-white ml-1 align-middle" />
+        </p>
+      )}
+    </div>
+  );
+}
+
+// === INTERACTION RENDERER ===
 
 interface InteractionRendererProps {
   interaction: RafagaBurstItem["interaction"];
   selectedValue: string | number | null;
   onSelect: (value: string | number) => void;
+  variant: "image" | "text"; // determines color scheme
 }
 
-function InteractionRenderer({ interaction, selectedValue, onSelect }: InteractionRendererProps) {
+function InteractionRenderer({ interaction, selectedValue, onSelect, variant }: InteractionRendererProps) {
+  // For image variant: white buttons on dark. For text variant: white on black.
+  // Both use white as primary color since bg is always dark/black now.
+
   if (interaction.type === "emoji_binary") {
     const { emojiA = "👍", emojiB = "👎" } = interaction;
     const isASelected = selectedValue === emojiA;
     const isBSelected = selectedValue === emojiB;
+    // Large emojis, no borders, just tappable areas
+    const emojiSize = variant === "text" ? "120px" : "106px";
 
     return (
-      <div className="flex gap-3 w-full">
+      <div className="flex justify-center gap-8 w-full">
         <button
           onClick={() => onSelect(emojiA)}
-          className="flex-1 h-[80px] rounded-xl flex items-center justify-center select-none active:scale-[0.98] transition-all duration-150 border-2"
-          style={{
-            borderColor: "var(--dynamic-bg, #000)",
-            backgroundColor: isASelected ? "var(--dynamic-bg, #000)" : "transparent",
-          }}
+          className="select-none active:scale-[0.92] transition-transform duration-150 p-2"
+          style={{ opacity: isBSelected ? 0.4 : 1 }}
         >
-          <span className="text-[42px] leading-none">{emojiA}</span>
+          <span style={{ fontSize: emojiSize }} className="leading-none block">{emojiA}</span>
         </button>
         <button
           onClick={() => onSelect(emojiB)}
-          className="flex-1 h-[80px] rounded-xl flex items-center justify-center select-none active:scale-[0.98] transition-all duration-150 border-2"
-          style={{
-            borderColor: "var(--dynamic-bg, #000)",
-            backgroundColor: isBSelected ? "var(--dynamic-bg, #000)" : "transparent",
-          }}
+          className="select-none active:scale-[0.92] transition-transform duration-150 p-2"
+          style={{ opacity: isASelected ? 0.4 : 1 }}
         >
-          <span className="text-[42px] leading-none">{emojiB}</span>
+          <span style={{ fontSize: emojiSize }} className="leading-none block">{emojiB}</span>
         </button>
       </div>
     );
@@ -435,27 +433,25 @@ function InteractionRenderer({ interaction, selectedValue, onSelect }: Interacti
       <div className="flex gap-3 w-full">
         <button
           onClick={() => onSelect(buttonA)}
-          className="flex-1 h-[60px] rounded-xl flex items-center justify-center select-none active:scale-[0.98] transition-all duration-150 border-2"
+          className="flex-1 h-[60px] rounded-[8px] flex items-center justify-center select-none active:scale-[0.97] transition-all duration-150"
           style={{
-            borderColor: "var(--dynamic-bg, #000)",
-            backgroundColor: isASelected ? "var(--dynamic-bg, #000)" : "transparent",
-            color: isASelected ? "var(--dynamic-fg, #fff)" : "var(--dynamic-bg, #000)",
+            backgroundColor: isASelected ? "rgba(255,255,255,0.7)" : "#fff",
+            color: "#000",
           }}
         >
-          <span className="font-['Roboto'] font-semibold text-[18px]">
+          <span className="font-['Roboto'] font-semibold text-[21px]">
             {buttonA}
           </span>
         </button>
         <button
           onClick={() => onSelect(buttonB)}
-          className="flex-1 h-[60px] rounded-xl flex items-center justify-center select-none active:scale-[0.98] transition-all duration-150 border-2"
+          className="flex-1 h-[60px] rounded-[8px] flex items-center justify-center select-none active:scale-[0.97] transition-all duration-150"
           style={{
-            borderColor: "var(--dynamic-bg, #000)",
-            backgroundColor: isBSelected ? "var(--dynamic-bg, #000)" : "transparent",
-            color: isBSelected ? "var(--dynamic-fg, #fff)" : "var(--dynamic-bg, #000)",
+            backgroundColor: isBSelected ? "rgba(255,255,255,0.7)" : "#fff",
+            color: "#000",
           }}
         >
-          <span className="font-['Roboto'] font-semibold text-[18px]">
+          <span className="font-['Roboto'] font-semibold text-[21px]">
             {buttonB}
           </span>
         </button>
@@ -466,16 +462,15 @@ function InteractionRenderer({ interaction, selectedValue, onSelect }: Interacti
   if (interaction.type === "slider") {
     const config = interaction.sliderConfig ?? {
       min: 0,
-      max: 10,
-      labelLeft: "No me gusta",
-      labelRight: "Me gusta",
+      max: 100,
+      labelLeft: "Nah",
+      labelRight: "Full",
     };
 
     return (
       <SliderInteraction
         config={config}
-        selectedValue={typeof selectedValue === "number" ? selectedValue : null}
-        onSelect={onSelect}
+        onConfirm={onSelect}
       />
     );
   }
@@ -483,41 +478,35 @@ function InteractionRenderer({ interaction, selectedValue, onSelect }: Interacti
   return null;
 }
 
+// === SLIDER with Confirmar button ===
+
 interface SliderInteractionProps {
   config: { min: number; max: number; labelLeft: string; labelRight: string };
-  selectedValue: number | null;
-  onSelect: (value: number) => void;
+  onConfirm: (value: number) => void;
 }
 
-function SliderInteraction({ config, selectedValue, onSelect }: SliderInteractionProps) {
+function SliderInteraction({ config, onConfirm }: SliderInteractionProps) {
   const { min, max, labelLeft, labelRight } = config;
   const range = max - min;
-  const [value, setValue] = useState(selectedValue ?? Math.round(range / 2) + min);
+  const [value, setValue] = useState(Math.round(range / 2) + min);
   const trackRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const lastValueRef = useRef(value);
 
-  // Update parent on value change
-  useEffect(() => {
-    if (value !== selectedValue) {
-      onSelect(value);
-    }
-  }, [value, selectedValue, onSelect]);
-
-  const handleInteract = (clientX: number) => {
+  const handleInteract = useCallback((clientX: number) => {
     if (!trackRef.current) return;
     const rect = trackRef.current.getBoundingClientRect();
     const thumbHalfPx = 24;
     const usableWidth = rect.width - thumbHalfPx * 2;
     const x = Math.max(0, Math.min(clientX - rect.left - thumbHalfPx, usableWidth));
-    const percent = x / usableWidth;
-    const newValue = Math.round(percent * (max - min)) + min;
+    const pct = x / usableWidth;
+    const newValue = Math.round(pct * (max - min)) + min;
     if (newValue !== lastValueRef.current) {
       hapticSelection();
       lastValueRef.current = newValue;
     }
     setValue(newValue);
-  };
+  }, [max, min]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true);
@@ -556,26 +545,16 @@ function SliderInteraction({ config, selectedValue, onSelect }: SliderInteractio
       window.removeEventListener("touchmove", handleTouchMove);
       window.removeEventListener("touchend", handleUp);
     };
-  }, [isDragging]);
+  }, [isDragging, handleInteract]);
 
   const percent = ((value - min) / (max - min)) * 100;
   const thumbSize = 48;
   const thumbHalf = thumbSize / 2;
-  const trackHeight = 34;
+  const trackHeight = 37;
   const dotSize = 7;
 
   return (
-    <div className="w-full select-none touch-none">
-      {/* Value Display */}
-      <div className="text-center mb-3">
-        <span
-          className="font-['Roboto'] font-semibold text-[36px] leading-none"
-          style={{ color: "var(--dynamic-bg, #000)" }}
-        >
-          {value}
-        </span>
-      </div>
-
+    <div className="w-full select-none touch-none flex flex-col gap-3">
       {/* Track Container */}
       <div
         ref={trackRef}
@@ -591,7 +570,7 @@ function SliderInteraction({ config, selectedValue, onSelect }: SliderInteractio
             height: `${trackHeight}px`,
             top: "50%",
             transform: "translateY(-50%)",
-            borderColor: "var(--dynamic-bg, #000)",
+            borderColor: "#fff",
           }}
         >
           {/* Dashed center line */}
@@ -601,7 +580,7 @@ function SliderInteraction({ config, selectedValue, onSelect }: SliderInteractio
               left: `${dotSize / 2 + 10}px`,
               right: `${dotSize / 2 + 10}px`,
               height: "2px",
-              backgroundImage: `repeating-linear-gradient(to right, var(--dynamic-bg, #000) 0, var(--dynamic-bg, #000) 6px, transparent 6px, transparent 12px)`,
+              backgroundImage: `repeating-linear-gradient(to right, #fff 0, #fff 6px, transparent 6px, transparent 12px)`,
             }}
           />
         </div>
@@ -610,7 +589,7 @@ function SliderInteraction({ config, selectedValue, onSelect }: SliderInteractio
         <div
           className="absolute rounded-full z-[5]"
           style={{
-            backgroundColor: "var(--dynamic-bg, #000)",
+            backgroundColor: "#fff",
             width: `${dotSize}px`,
             height: `${dotSize}px`,
             left: "12px",
@@ -623,7 +602,7 @@ function SliderInteraction({ config, selectedValue, onSelect }: SliderInteractio
         <div
           className="absolute rounded-full z-[5]"
           style={{
-            backgroundColor: "var(--dynamic-bg, #000)",
+            backgroundColor: "#fff",
             width: `${dotSize}px`,
             height: `${dotSize}px`,
             right: "12px",
@@ -634,10 +613,10 @@ function SliderInteraction({ config, selectedValue, onSelect }: SliderInteractio
 
         {/* Thumb - bullseye */}
         <div
-          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-full border-[2.5px] flex items-center justify-center shadow-lg z-10 transition-transform active:scale-110"
+          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-full flex items-center justify-center z-10 transition-transform active:scale-110"
           style={{
-            backgroundColor: "var(--dynamic-fg, #fff)",
-            borderColor: "var(--dynamic-bg, #000)",
+            backgroundColor: "#fff",
+            border: "4px solid #fff",
             width: `${thumbSize}px`,
             height: `${thumbSize}px`,
             left: `calc(${thumbHalf}px + ${percent / 100} * (100% - ${thumbSize}px))`,
@@ -645,15 +624,15 @@ function SliderInteraction({ config, selectedValue, onSelect }: SliderInteractio
         >
           <div
             className="w-[28px] h-[28px] rounded-full flex items-center justify-center"
-            style={{ backgroundColor: "var(--dynamic-bg, #000)" }}
+            style={{ backgroundColor: "#000" }}
           >
             <div
               className="w-[16px] h-[16px] rounded-full flex items-center justify-center"
-              style={{ backgroundColor: "var(--dynamic-fg, #fff)" }}
+              style={{ backgroundColor: "#fff" }}
             >
               <div
                 className="w-[7px] h-[7px] rounded-full"
-                style={{ backgroundColor: "var(--dynamic-bg, #000)" }}
+                style={{ backgroundColor: "#000" }}
               />
             </div>
           </div>
@@ -661,13 +640,21 @@ function SliderInteraction({ config, selectedValue, onSelect }: SliderInteractio
       </div>
 
       {/* Labels */}
-      <div
-        className="flex justify-between mt-1.5 font-['Roboto'] font-medium text-xs px-1 opacity-80"
-        style={{ color: "var(--dynamic-bg, #000)" }}
-      >
+      <div className="flex justify-between font-['Roboto'] font-medium text-[12px] text-white opacity-80 px-1">
         <span>{labelLeft}</span>
         <span>{labelRight}</span>
       </div>
+
+      {/* Confirmar button */}
+      <button
+        onClick={() => onConfirm(value)}
+        className="w-full h-[60px] rounded-[8px] flex items-center justify-center select-none active:scale-[0.97] transition-transform duration-150 mt-1"
+        style={{ backgroundColor: "#fff", color: "#000" }}
+      >
+        <span className="font-['Roboto'] font-semibold text-[21px]">
+          Confirmar
+        </span>
+      </button>
     </div>
   );
 }
