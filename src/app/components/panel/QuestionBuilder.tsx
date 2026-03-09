@@ -285,20 +285,65 @@ function RafagaBurstItemsField({
     if (items.length <= 1) return;
     onChange(items.filter((_, idx) => idx !== i));
   };
-  const updateTrigger = (i: number, text: string) => {
+
+  // --- Trigger updates ---
+  const updateTriggerType = (i: number, triggerType: "text" | "image" | "image_text") => {
     const next = [...items];
-    next[i] = { ...next[i], trigger: { type: "text", text } };
+    const prev = next[i].trigger;
+    next[i] = {
+      ...next[i],
+      trigger: {
+        type: triggerType,
+        text: triggerType !== "image" ? (prev.text || "") : undefined,
+        imageUrl: triggerType !== "text" ? (prev.imageUrl || "") : undefined,
+      }
+    };
     onChange(next);
   };
-  const updateInteraction = (i: number, field: "emojiA" | "emojiB", value: string) => {
+  const updateTriggerField = (i: number, field: "text" | "imageUrl", value: string) => {
     const next = [...items];
-    if (next[i].interaction.type === "emoji_binary") {
+    next[i] = { ...next[i], trigger: { ...next[i].trigger, [field]: value } };
+    onChange(next);
+  };
+
+  // --- Interaction updates ---
+  const updateInteractionType = (i: number, intType: "emoji_binary" | "button_binary" | "slider") => {
+    const next = [...items];
+    if (intType === "emoji_binary") {
+      next[i] = { ...next[i], interaction: { type: "emoji_binary", emojiA: "👍", emojiB: "👎" } };
+    } else if (intType === "button_binary") {
+      next[i] = { ...next[i], interaction: { type: "button_binary", buttonA: "A", buttonB: "B" } };
+    } else {
+      next[i] = { ...next[i], interaction: { type: "slider", sliderConfig: { min: 0, max: 100, labelLeft: "Nah", labelRight: "Full" } } };
+    }
+    onChange(next);
+  };
+  const updateInteractionField = (i: number, field: string, value: string) => {
+    const next = [...items];
+    next[i] = { ...next[i], interaction: { ...next[i].interaction, [field]: value } as any };
+    onChange(next);
+  };
+  const updateSliderConfig = (i: number, field: string, value: string | number) => {
+    const next = [...items];
+    const prev = next[i].interaction;
+    if (prev.type === "slider" && prev.sliderConfig) {
       next[i] = {
         ...next[i],
-        interaction: { ...next[i].interaction, [field]: value }
+        interaction: { ...prev, sliderConfig: { ...prev.sliderConfig, [field]: value } }
       };
     }
     onChange(next);
+  };
+
+  const miniSelectStyle: React.CSSProperties = {
+    ...inputStyle,
+    fontSize: "11px",
+    padding: "4px 8px",
+    appearance: "none" as const,
+    backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")",
+    backgroundRepeat: "no-repeat",
+    backgroundPosition: "right 6px center",
+    paddingRight: "22px",
   };
 
   return (
@@ -306,7 +351,8 @@ function RafagaBurstItemsField({
       <label className="text-xs font-medium uppercase tracking-wider" style={labelStyle}>Items de ráfaga burst</label>
       <div className="flex flex-col gap-3">
         {items.map((item, i) => (
-          <div key={i} className="rounded-lg p-3 flex flex-col gap-2" style={{ backgroundColor: "var(--p-bg-input)", border: "1px solid var(--p-border-subtle)" }}>
+          <div key={i} className="rounded-lg p-3 flex flex-col gap-2.5" style={{ backgroundColor: "var(--p-bg-input)", border: "1px solid var(--p-border-subtle)" }}>
+            {/* Header: number + delete */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <GripVertical size={14} style={{ color: "var(--p-text-ghost)" }} />
@@ -318,28 +364,134 @@ function RafagaBurstItemsField({
                 </button>
               )}
             </div>
-            <input
-              className="w-full rounded px-2.5 py-1.5 text-sm focus:outline-none"
-              style={inputStyle}
-              value={item.trigger.type === "text" ? item.trigger.text : ""}
-              onChange={(e) => updateTrigger(i, e.target.value)}
-              placeholder="Texto trigger"
-            />
-            <div className="flex gap-2">
-              <input
-                className="flex-1 rounded px-2.5 py-1.5 text-sm focus:outline-none"
-                style={inputStyle}
-                value={item.interaction.type === "emoji_binary" ? item.interaction.emojiA : ""}
-                onChange={(e) => updateInteraction(i, "emojiA", e.target.value)}
-                placeholder="Emoji A"
-              />
-              <input
-                className="flex-1 rounded px-2.5 py-1.5 text-sm focus:outline-none"
-                style={inputStyle}
-                value={item.interaction.type === "emoji_binary" ? item.interaction.emojiB : ""}
-                onChange={(e) => updateInteraction(i, "emojiB", e.target.value)}
-                placeholder="Emoji B"
-              />
+
+            {/* ── TRIGGER SECTION ── */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--p-text-ghost)" }}>Trigger</span>
+                <select
+                  style={miniSelectStyle}
+                  className="rounded"
+                  value={item.trigger.type}
+                  onChange={(e) => updateTriggerType(i, e.target.value as any)}
+                >
+                  <option value="text">Texto</option>
+                  <option value="image">Imagen</option>
+                  <option value="image_text">Imagen + Texto</option>
+                </select>
+              </div>
+              {(item.trigger.type === "text" || item.trigger.type === "image_text") && (
+                <input
+                  className="w-full rounded px-2.5 py-1.5 text-sm focus:outline-none"
+                  style={inputStyle}
+                  value={item.trigger.text || ""}
+                  onChange={(e) => updateTriggerField(i, "text", e.target.value)}
+                  placeholder="Texto del trigger"
+                />
+              )}
+              {(item.trigger.type === "image" || item.trigger.type === "image_text") && (
+                <input
+                  className="w-full rounded px-2.5 py-1.5 text-sm focus:outline-none"
+                  style={inputStyle}
+                  value={item.trigger.imageUrl || ""}
+                  onChange={(e) => updateTriggerField(i, "imageUrl", e.target.value)}
+                  placeholder="URL de imagen"
+                />
+              )}
+            </div>
+
+            {/* ── INTERACTION SECTION ── */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] uppercase tracking-wider" style={{ color: "var(--p-text-ghost)" }}>Interacción</span>
+                <select
+                  style={miniSelectStyle}
+                  className="rounded"
+                  value={item.interaction.type}
+                  onChange={(e) => updateInteractionType(i, e.target.value as any)}
+                >
+                  <option value="emoji_binary">Emoji Binary</option>
+                  <option value="button_binary">Button Binary</option>
+                  <option value="slider">Slider</option>
+                </select>
+              </div>
+
+              {item.interaction.type === "emoji_binary" && (
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 rounded px-2.5 py-1.5 text-sm focus:outline-none"
+                    style={inputStyle}
+                    value={item.interaction.emojiA || ""}
+                    onChange={(e) => updateInteractionField(i, "emojiA", e.target.value)}
+                    placeholder="Emoji A"
+                  />
+                  <input
+                    className="flex-1 rounded px-2.5 py-1.5 text-sm focus:outline-none"
+                    style={inputStyle}
+                    value={item.interaction.emojiB || ""}
+                    onChange={(e) => updateInteractionField(i, "emojiB", e.target.value)}
+                    placeholder="Emoji B"
+                  />
+                </div>
+              )}
+
+              {item.interaction.type === "button_binary" && (
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 rounded px-2.5 py-1.5 text-sm focus:outline-none"
+                    style={inputStyle}
+                    value={item.interaction.buttonA || ""}
+                    onChange={(e) => updateInteractionField(i, "buttonA", e.target.value)}
+                    placeholder="Botón A"
+                  />
+                  <input
+                    className="flex-1 rounded px-2.5 py-1.5 text-sm focus:outline-none"
+                    style={inputStyle}
+                    value={item.interaction.buttonB || ""}
+                    onChange={(e) => updateInteractionField(i, "buttonB", e.target.value)}
+                    placeholder="Botón B"
+                  />
+                </div>
+              )}
+
+              {item.interaction.type === "slider" && item.interaction.sliderConfig && (
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex gap-2">
+                    <input
+                      className="flex-1 rounded px-2.5 py-1.5 text-sm focus:outline-none"
+                      style={inputStyle}
+                      value={item.interaction.sliderConfig.labelLeft}
+                      onChange={(e) => updateSliderConfig(i, "labelLeft", e.target.value)}
+                      placeholder="Label izq"
+                    />
+                    <input
+                      className="flex-1 rounded px-2.5 py-1.5 text-sm focus:outline-none"
+                      style={inputStyle}
+                      value={item.interaction.sliderConfig.labelRight}
+                      onChange={(e) => updateSliderConfig(i, "labelRight", e.target.value)}
+                      placeholder="Label der"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      className="w-20 rounded px-2.5 py-1.5 text-sm focus:outline-none"
+                      style={inputStyle}
+                      value={item.interaction.sliderConfig.min}
+                      onChange={(e) => updateSliderConfig(i, "min", Number(e.target.value))}
+                      placeholder="Min"
+                    />
+                    <input
+                      type="number"
+                      className="w-20 rounded px-2.5 py-1.5 text-sm focus:outline-none"
+                      style={inputStyle}
+                      value={item.interaction.sliderConfig.max}
+                      onChange={(e) => updateSliderConfig(i, "max", Number(e.target.value))}
+                      placeholder="Max"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ))}
