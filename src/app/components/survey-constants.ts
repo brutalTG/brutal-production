@@ -68,5 +68,5 @@ export function buildQuestionOptionsMap(questions: Question[]): Record<number, s
 
 // --- Full-screen question types (skip the standard header layout) ---
 export const FULLSCREEN_TYPES = new Set<Question["type"]>([
-  "dead_drop", "hot_take", "hot_take_visual", "media_reaction",
+  "dead_drop", "hot_take", "hot_take_visual", "media_reaction", "rafaga_burst",
 ]);
