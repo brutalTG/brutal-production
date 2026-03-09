@@ -136,6 +136,26 @@ export function RafagaBurstQuestion({
     return clearTimer;
   }, [phase, currentIdx, secondsPerItem, advanceOrComplete, transitioning, isSlider]);
 
+  const runBlinkAndComplete = useCallback(() => {
+    if (transitioningRef.current || completedRef.current) return;
+    transitioningRef.current = true;
+    setTransitioning(true);
+    clearTimer();
+    hapticRigid();
+
+    let step = 0;
+    const interval = setInterval(() => {
+      if (step < BLINK_STEPS.length) {
+        setBlinkOpacity(BLINK_STEPS[step]);
+        step++;
+      } else {
+        clearInterval(interval);
+        // Don't restore opacity — stay black, then complete
+        doComplete();
+      }
+    }, BLINK_STEP_MS);
+  }, [doComplete]);
+
   const handleSelect = useCallback(
     (value: string | number) => {
       if (transitioningRef.current || completedRef.current) return;
@@ -150,13 +170,13 @@ export function RafagaBurstQuestion({
 
       setTimeout(() => {
         if (isLast) {
-          doComplete();
+          runBlinkAndComplete();
         } else {
           runBlinkAndAdvance(idx + 1);
         }
       }, POST_SELECT_DELAY);
     },
-    [total, doComplete, runBlinkAndAdvance]
+    [total, runBlinkAndComplete, runBlinkAndAdvance]
   );
 
   // Sub-timer progress bar — only runs during "playing" phase (not for slider)
