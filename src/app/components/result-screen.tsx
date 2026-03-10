@@ -41,7 +41,7 @@ export function ResultScreen({ percentage, text = "Opina igual que vos.", onCont
     if (showText && onContinue) {
       const timer = setTimeout(() => {
         onContinue();
-      }, 3000);
+      }, 2200);
       return () => clearTimeout(timer);
     }
   }, [showText, onContinue]);
