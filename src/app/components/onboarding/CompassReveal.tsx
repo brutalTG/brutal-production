@@ -246,7 +246,7 @@ export function CompassReveal({ vector, primary, secondary, purity, onContinue }
 
         {/* Quote */}
         <p
-          className="font-['Roboto'] font-semibold text-[16px] leading-snug text-center mb-3 px-2 italic"
+          className="font-['Roboto'] font-semibold text-[16px] leading-snug text-center mb-3 px-2"
           style={{ color: "var(--dynamic-bg, #000)" }}
         >
           &ldquo;{primary.phrase}&rdquo;
