@@ -211,15 +211,17 @@ export function RafagaBurstQuestion({
   if (phase === "countdown") {
     return (
       <div
-        className="flex items-center justify-center h-dvh bg-black overflow-hidden"
+        className="flex items-center justify-center h-dvh overflow-hidden"
         style={{
+          backgroundColor: "var(--dynamic-bg, #000)",
           paddingTop: "var(--tg-safe-top, 0px)",
           paddingBottom: "var(--tg-safe-bottom, 0px)",
         }}
       >
         <span
-          className="font-['Roboto'] font-bold text-white text-[128px] text-center leading-none select-none"
+          className="font-['Roboto'] font-bold text-[128px] text-center leading-none select-none"
           style={{
+            color: "var(--dynamic-fg, #fff)",
             transition: "transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)",
             opacity: countdownValue >= 0 ? 1 : 0,
           }}
@@ -236,7 +238,7 @@ export function RafagaBurstQuestion({
   if (hasImage) {
     // === IMAGE LAYOUT: fullscreen image bg, gradient, lower-third interaction ===
     return (
-      <div className="relative h-dvh bg-black overflow-hidden">
+      <div className="relative h-dvh overflow-hidden" style={{ backgroundColor: transitioning ? "var(--dynamic-fg, #fff)" : "var(--dynamic-bg, #000)" }}>
         {/* Fullscreen image background */}
         {isVideoUrl(item.trigger.imageUrl) ? (
           <video
@@ -262,21 +264,22 @@ export function RafagaBurstQuestion({
           className="absolute bottom-0 left-0 right-0 pointer-events-none"
           style={{
             height: "300px",
-            background: "linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.7) 40%, transparent 100%)",
+            background: "linear-gradient(to top, var(--dynamic-bg, rgba(0,0,0,1)) 0%, transparent 100%)",
+            opacity: blinkOpacity
           }}
         />
 
         {/* Dot indicators (overlaid near top of image) */}
         <div className="absolute top-0 left-0 right-0 z-20 flex flex-col items-center pt-4"
-          style={{ paddingTop: "calc(var(--tg-safe-top, 0px) + 16px)" }}
+          style={{ paddingTop: "calc(var(--tg-safe-top, 0px) + 16px)", opacity: blinkOpacity }}
         >
           <div className="flex items-center gap-[6px]">
             {items.map((_, i) => (
               <div key={i}>
                 {i <= currentIdx ? (
-                  <div className="w-[11px] h-[11px] rounded-full bg-white" />
+                  <div className="w-[11px] h-[11px] rounded-full" style={{ backgroundColor: "var(--dynamic-fg, #fff)" }} />
                 ) : (
-                  <div className="w-[11px] h-[11px] rounded-full border-2 border-white bg-transparent" />
+                  <div className="w-[11px] h-[11px] rounded-full border-2 bg-transparent" style={{ borderColor: "var(--dynamic-fg, #fff)" }} />
                 )}
               </div>
             ))}
@@ -284,12 +287,11 @@ export function RafagaBurstQuestion({
 
           {/* Sub-timer bar */}
           {!isSlider && (
-            <div className="w-[80%] h-[3px] rounded-full mt-3 overflow-hidden"
-              style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
-            >
+            <div className="w-[80%] h-[3px] rounded-full mt-3 overflow-hidden relative">
+              <div className="absolute inset-0 opacity-20" style={{ backgroundColor: "var(--dynamic-fg, #fff)" }} />
               <div
-                className="h-full rounded-full bg-white"
-                style={{ width: `${subProgress}%`, transition: "width 0.03s linear" }}
+                className="h-full rounded-full relative z-10"
+                style={{ backgroundColor: "var(--dynamic-fg, #fff)", width: `${subProgress}%`, transition: "width 0.03s linear" }}
               />
             </div>
           )}
@@ -302,7 +304,7 @@ export function RafagaBurstQuestion({
           <div className="w-full" style={{ opacity: blinkOpacity }}>
             {/* image_text overlay label */}
             {item.trigger.type === "image_text" && item.trigger.text && (
-              <p className="font-['Roboto'] font-bold text-[31px] text-white text-center leading-tight mb-5">
+              <p className="font-['Roboto'] font-bold text-[31px] text-center leading-tight mb-5" style={{ color: "var(--dynamic-fg, #fff)" }}>
                 {item.trigger.text}
               </p>
             )}
@@ -321,32 +323,32 @@ export function RafagaBurstQuestion({
 
   // === TEXT LAYOUT: black bg, centered text, interaction below ===
   return (
-    <div className="relative h-dvh bg-black overflow-hidden flex flex-col"
+    <div className="relative h-dvh overflow-hidden flex flex-col"
       style={{
+        backgroundColor: transitioning ? "var(--dynamic-fg, #fff)" : "var(--dynamic-bg, #000)",
         paddingTop: "var(--tg-safe-top, 0px)",
         paddingBottom: "var(--tg-safe-bottom, 0px)",
       }}
     >
       {/* Dot indicators at top */}
-      <div className="flex flex-col items-center pt-4">
+      <div className="flex flex-col items-center pt-4" style={{ opacity: blinkOpacity }}>
         <div className="flex items-center gap-[6px]">
           {items.map((_, i) => (
             <div key={i}>
               {i <= currentIdx ? (
-                <div className="w-[11px] h-[11px] rounded-full bg-white" />
+                <div className="w-[11px] h-[11px] rounded-full" style={{ backgroundColor: "var(--dynamic-fg, #fff)" }} />
               ) : (
-                <div className="w-[11px] h-[11px] rounded-full border-2 border-white bg-transparent" />
+                <div className="w-[11px] h-[11px] rounded-full border-2 bg-transparent" style={{ borderColor: "var(--dynamic-fg, #fff)" }} />
               )}
             </div>
           ))}
         </div>
         {!isSlider && (
-          <div className="w-[80%] h-[3px] rounded-full mt-3 overflow-hidden"
-            style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
-          >
+          <div className="w-[80%] h-[3px] rounded-full mt-3 overflow-hidden relative">
+            <div className="absolute inset-0 opacity-20" style={{ backgroundColor: "var(--dynamic-fg, #fff)" }} />
             <div
-              className="h-full rounded-full bg-white"
-              style={{ width: `${subProgress}%`, transition: "width 0.03s linear" }}
+              className="h-full rounded-full relative z-10"
+              style={{ backgroundColor: "var(--dynamic-fg, #fff)", width: `${subProgress}%`, transition: "width 0.03s linear" }}
             />
           </div>
         )}
@@ -355,7 +357,7 @@ export function RafagaBurstQuestion({
       {/* Center: text + interaction */}
       <div className="flex-1 flex flex-col items-center justify-center px-6" style={{ opacity: blinkOpacity }}>
         {/* Text trigger */}
-        <h2 className="font-['Roboto'] font-bold text-[39px] text-white text-center leading-tight mb-12">
+        <h2 className="font-['Roboto'] font-bold text-[39px] text-center leading-tight mb-12" style={{ color: "var(--dynamic-fg, #fff)" }}>
           {item.trigger.text}
         </h2>
 
@@ -401,19 +403,20 @@ function PreScreen({ title, subtitle }: { title: string; subtitle?: string }) {
 
   return (
     <div
-      className="flex flex-col items-center justify-center h-dvh bg-black overflow-hidden px-8"
+      className="flex flex-col items-center justify-center h-dvh overflow-hidden px-8"
       style={{
+        backgroundColor: "var(--dynamic-bg, #000)",
         paddingTop: "var(--tg-safe-top, 0px)",
         paddingBottom: "var(--tg-safe-bottom, 0px)",
       }}
     >
-      <h1 className="font-['Roboto'] font-bold text-[40px] text-white text-center leading-tight">
+      <h1 className="font-['Roboto'] font-bold text-[40px] text-center leading-tight" style={{ color: "var(--dynamic-fg, #fff)" }}>
         {title}
       </h1>
       {subtitle && (
-        <p className="font-['Roboto'] font-bold text-[34px] text-white text-center leading-tight mt-4">
+        <p className="font-['Roboto'] font-bold text-[34px] text-center leading-tight mt-4" style={{ color: "var(--dynamic-fg, #fff)" }}>
           {displayedSubtitle}
-          <span style={{ opacity: showCursor ? 1 : 0 }} className="inline-block w-[2px] h-[34px] bg-white ml-1 align-middle" />
+          <span style={{ opacity: showCursor ? 1 : 0, backgroundColor: "var(--dynamic-fg, #fff)" }} className="inline-block w-[2px] h-[34px] ml-1 align-middle" />
         </p>
       )}
     </div>
@@ -469,10 +472,11 @@ function InteractionRenderer({ interaction, selectedValue, onSelect, variant }: 
       <div className="flex gap-3 w-full">
         <button
           onClick={() => onSelect(buttonA)}
-          className="flex-1 h-[60px] rounded-[8px] flex items-center justify-center select-none active:scale-[0.97] transition-all duration-150"
+          className="flex-1 h-[60px] rounded-[8px] flex items-center justify-center select-none active:scale-[0.97] transition-all duration-150 border-[2px]"
           style={{
-            backgroundColor: isASelected ? "rgba(255,255,255,0.7)" : "#fff",
-            color: "#000",
+            backgroundColor: isASelected ? "var(--dynamic-bg, #000)" : "var(--dynamic-fg, #fff)",
+            borderColor: "var(--dynamic-fg, #fff)",
+            color: isASelected ? "var(--dynamic-fg, #fff)" : "var(--dynamic-bg, #000)",
           }}
         >
           <span className="font-['Roboto'] font-semibold text-[21px]">
@@ -481,10 +485,11 @@ function InteractionRenderer({ interaction, selectedValue, onSelect, variant }: 
         </button>
         <button
           onClick={() => onSelect(buttonB)}
-          className="flex-1 h-[60px] rounded-[8px] flex items-center justify-center select-none active:scale-[0.97] transition-all duration-150"
+          className="flex-1 h-[60px] rounded-[8px] flex items-center justify-center select-none active:scale-[0.97] transition-all duration-150 border-[2px]"
           style={{
-            backgroundColor: isBSelected ? "rgba(255,255,255,0.7)" : "#fff",
-            color: "#000",
+            backgroundColor: isBSelected ? "var(--dynamic-bg, #000)" : "var(--dynamic-fg, #fff)",
+            borderColor: "var(--dynamic-fg, #fff)",
+            color: isBSelected ? "var(--dynamic-fg, #fff)" : "var(--dynamic-bg, #000)",
           }}
         >
           <span className="font-['Roboto'] font-semibold text-[21px]">
@@ -606,7 +611,7 @@ function SliderInteraction({ config, onConfirm }: SliderInteractionProps) {
             height: `${trackHeight}px`,
             top: "50%",
             transform: "translateY(-50%)",
-            borderColor: "#fff",
+            borderColor: "var(--dynamic-fg, #fff)",
           }}
         >
           {/* Dashed center line */}
@@ -616,7 +621,7 @@ function SliderInteraction({ config, onConfirm }: SliderInteractionProps) {
               left: `${dotSize / 2 + 10}px`,
               right: `${dotSize / 2 + 10}px`,
               height: "2px",
-              backgroundImage: `repeating-linear-gradient(to right, #fff 0, #fff 6px, transparent 6px, transparent 12px)`,
+              backgroundImage: `repeating-linear-gradient(to right, var(--dynamic-fg, #fff) 0, var(--dynamic-fg, #fff) 6px, transparent 6px, transparent 12px)`,
             }}
           />
         </div>
@@ -625,7 +630,7 @@ function SliderInteraction({ config, onConfirm }: SliderInteractionProps) {
         <div
           className="absolute rounded-full z-[5]"
           style={{
-            backgroundColor: "#fff",
+            backgroundColor: "var(--dynamic-fg, #fff)",
             width: `${dotSize}px`,
             height: `${dotSize}px`,
             left: "12px",
@@ -638,7 +643,7 @@ function SliderInteraction({ config, onConfirm }: SliderInteractionProps) {
         <div
           className="absolute rounded-full z-[5]"
           style={{
-            backgroundColor: "#fff",
+            backgroundColor: "var(--dynamic-fg, #fff)",
             width: `${dotSize}px`,
             height: `${dotSize}px`,
             right: "12px",
@@ -651,8 +656,8 @@ function SliderInteraction({ config, onConfirm }: SliderInteractionProps) {
         <div
           className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-full flex items-center justify-center z-10 transition-transform active:scale-110"
           style={{
-            backgroundColor: "#fff",
-            border: "4px solid #fff",
+            backgroundColor: "var(--dynamic-fg, #fff)",
+            border: "4px solid var(--dynamic-fg, #fff)",
             width: `${thumbSize}px`,
             height: `${thumbSize}px`,
             left: `calc(${thumbHalf}px + ${percent / 100} * (100% - ${thumbSize}px))`,
@@ -660,15 +665,15 @@ function SliderInteraction({ config, onConfirm }: SliderInteractionProps) {
         >
           <div
             className="w-[28px] h-[28px] rounded-full flex items-center justify-center"
-            style={{ backgroundColor: "#000" }}
+            style={{ backgroundColor: "var(--dynamic-bg, #000)" }}
           >
             <div
               className="w-[16px] h-[16px] rounded-full flex items-center justify-center"
-              style={{ backgroundColor: "#fff" }}
+              style={{ backgroundColor: "var(--dynamic-fg, #fff)" }}
             >
               <div
                 className="w-[7px] h-[7px] rounded-full"
-                style={{ backgroundColor: "#000" }}
+                style={{ backgroundColor: "var(--dynamic-bg, #000)" }}
               />
             </div>
           </div>
@@ -676,7 +681,7 @@ function SliderInteraction({ config, onConfirm }: SliderInteractionProps) {
       </div>
 
       {/* Labels */}
-      <div className="flex justify-between font-['Roboto'] font-medium text-[12px] text-white opacity-80 px-1">
+      <div className="flex justify-between font-['Roboto'] font-medium text-[12px] opacity-80 px-1" style={{ color: "var(--dynamic-fg, #fff)" }}>
         <span>{labelLeft}</span>
         <span>{labelRight}</span>
       </div>
@@ -684,8 +689,8 @@ function SliderInteraction({ config, onConfirm }: SliderInteractionProps) {
       {/* Confirmar button */}
       <button
         onClick={() => onConfirm(value)}
-        className="w-full h-[60px] rounded-[8px] flex items-center justify-center select-none active:scale-[0.97] transition-transform duration-150 mt-1"
-        style={{ backgroundColor: "#fff", color: "#000" }}
+        className="w-full h-[60px] rounded-[8px] flex items-center justify-center select-none active:scale-[0.97] transition-transform duration-150 mt-1 border-[2px]"
+        style={{ backgroundColor: "var(--dynamic-fg, #fff)", borderColor: "var(--dynamic-fg, #fff)", color: "var(--dynamic-bg, #000)" }}
       >
         <span className="font-['Roboto'] font-semibold text-[21px]">
           Confirmar
