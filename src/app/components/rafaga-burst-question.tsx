@@ -14,6 +14,11 @@ const BLINK_SWAP_AT = 3;
 // Delay after selecting before blink/complete (ms) — lets user see filled button
 const POST_SELECT_DELAY = 250;
 
+const isVideoUrl = (url?: string) => {
+  if (!url) return false;
+  return url.match(/\.(mp4|webm|mov|ogg)($|\?)/i) !== null;
+};
+
 export function RafagaBurstQuestion({
   preScreen,
   items,
@@ -36,26 +41,6 @@ export function RafagaBurstQuestion({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
-
-  // Defensive reset on mount — ensures fresh state if React reuses the fiber
-  useEffect(() => {
-    currentIdxRef.current = 0;
-    answersRef.current = new Array(items.length).fill(null);
-    completedRef.current = false;
-    transitioningRef.current = false;
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    setPhase("pre");
-    setCountdownValue(3);
-    setCurrentIdx(0);
-    setBlinkOpacity(1);
-    setTransitioning(false);
-    setSubProgress(100);
-    setSelectedValue(null);
-  }, [items]);
-
 
   const total = items.length;
   const item = items[currentIdx];
@@ -156,26 +141,6 @@ export function RafagaBurstQuestion({
     return clearTimer;
   }, [phase, currentIdx, secondsPerItem, advanceOrComplete, transitioning, isSlider]);
 
-  const runBlinkAndComplete = useCallback(() => {
-    if (transitioningRef.current || completedRef.current) return;
-    transitioningRef.current = true;
-    setTransitioning(true);
-    clearTimer();
-    hapticRigid();
-
-    let step = 0;
-    const interval = setInterval(() => {
-      if (step < BLINK_STEPS.length) {
-        setBlinkOpacity(BLINK_STEPS[step]);
-        step++;
-      } else {
-        clearInterval(interval);
-        // Don't restore opacity — stay black, then complete
-        doComplete();
-      }
-    }, BLINK_STEP_MS);
-  }, [doComplete]);
-
   const handleSelect = useCallback(
     (value: string | number) => {
       if (transitioningRef.current || completedRef.current) return;
@@ -190,13 +155,13 @@ export function RafagaBurstQuestion({
 
       setTimeout(() => {
         if (isLast) {
-          runBlinkAndComplete();
+          doComplete();
         } else {
           runBlinkAndAdvance(idx + 1);
         }
       }, POST_SELECT_DELAY);
     },
-    [total, runBlinkAndComplete, runBlinkAndAdvance]
+    [total, doComplete, runBlinkAndAdvance]
   );
 
   // Sub-timer progress bar — only runs during "playing" phase (not for slider)
@@ -254,12 +219,24 @@ export function RafagaBurstQuestion({
     return (
       <div className="relative h-dvh bg-black overflow-hidden">
         {/* Fullscreen image background */}
-        <img
-          src={item.trigger.imageUrl}
-          alt=""
-          className="absolute inset-0 w-full h-full object-cover"
-          style={{ opacity: blinkOpacity }}
-        />
+        {isVideoUrl(item.trigger.imageUrl) ? (
+          <video
+            src={item.trigger.imageUrl}
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{ opacity: blinkOpacity }}
+          />
+        ) : (
+          <img
+            src={item.trigger.imageUrl}
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{ opacity: blinkOpacity }}
+          />
+        )}
 
         {/* Bottom gradient overlay */}
         <div
