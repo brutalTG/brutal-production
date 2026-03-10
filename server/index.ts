@@ -1327,6 +1327,11 @@ app.put("/claims/:id", requirePanel, async (c) => {
 // ADMIN — NODES
 // ============================================================================
 
+// ============================================================================
+// REPLACEMENT: /admin/applications endpoint
+// Copy this over the existing app.get("/admin/applications", ...) block
+// ============================================================================
+
 app.get("/admin/applications", requirePanel, async (c) => {
   const limit = parseInt(c.req.query("limit") || "100");
   const offset = parseInt(c.req.query("offset") || "0");
@@ -1343,135 +1348,37 @@ app.get("/admin/applications", requirePanel, async (c) => {
 
   const applications = (data || []).map((n: any) => {
     const p = Array.isArray(n.profiles) ? n.profiles[0] : n.profiles || {};
+    const od = n.onboarding_data || {};
     return {
-      applicationId: n.node_id, telegramUserId: 0, nickname: n.nickname,
-      phone: n.phone, age: n.age, gender: n.gender, location: n.location_province,
-      status: n.status, referralCode: n.referral_code, compassArchetype: n.compass_archetype,
-      createdAt: n.created_at, totalCoins: p.cash_balance || 0,
-      seasonTickets: p.tickets_current || 0, dropsCompleted: p.drops_completed || 0,
+      applicationId: n.node_id,
+      telegramUserId: 0,
+      nickname: n.nickname,
+      phone: n.phone,
+      age: n.age,
+      gender: n.gender,
+      location: [n.location_province, n.location_city].filter(Boolean).join(" — "),
+      phoneBrand: n.phone_brand || "",
+      status: n.status,
+      referralCode: n.referral_code,
+      createdAt: n.created_at,
+      // Compass
+      compassArchetype: n.compass_archetype,
+      compassXPole: n.compass_x_pole,
+      compassYPole: n.compass_y_pole,
+      compassZPole: n.compass_z_pole,
+      // Onboarding data (from JSONB)
+      platforms: od.platforms || [],
+      aiTool: od.ai_tool || "",
+      // Profile stats
+      totalCoins: p.cash_balance || 0,
+      seasonTickets: p.tickets_current || 0,
+      dropsCompleted: p.drops_completed || 0,
+      // Handles
+      handles: n.handles || {},
     };
   });
 
-  return c.json({ applications });
-});
-
-app.get("/admin/users", requirePanel, async (c) => {
-  const status = c.req.query("status");
-  const search = c.req.query("search");
-  const limit = parseInt(c.req.query("limit") || "100");
-  const offset = parseInt(c.req.query("offset") || "0");
-
-  let q = db().from("nodes").select("*, profiles(*)", { count: "exact" })
-    .order("created_at", { ascending: false }).range(offset, offset + limit - 1);
-  if (status) q = q.eq("status", status);
-  if (search) q = q.or(`nickname.ilike.%${search}%,phone.ilike.%${search}%,referral_code.ilike.%${search}%`);
-
-  const { data, count, error } = await q;
-  if (error) return c.json({ error: error.message }, 500);
-
-  const users = (data || []).map((n: any) => {
-    const p = Array.isArray(n.profiles) ? n.profiles[0] : n.profiles || {};
-    return {
-      ...dbToUserProfile(n, p, 0, null),
-      applicationId: n.node_id, status: n.status, node_id: n.node_id,
-      phone: n.phone, referralCode: n.referral_code, compassArchetype: n.compass_archetype,
-      age: n.age, gender: n.gender, locationProvince: n.location_province,
-    };
-  });
-
-  return c.json({ applications: users, users, count: count || 0 });
-});
-
-app.put("/admin/users/:id/status", requirePanel, async (c) => {
-  const nodeId = c.req.param("id");
-  const { status } = await c.req.json();
-  if (!["active", "pending", "blocked", "rejected", "incomplete", "banned"].includes(status)) {
-    return c.json({ error: "Invalid status" }, 400);
-  }
-
-  if (status === "active") {
-    const { data: nd } = await db()
-      .from("nodes").select("referred_by, status").eq("node_id", nodeId).single();
-    if (nd?.referred_by && nd.status !== "active") {
-      const { data: bonusCfg } = await db()
-        .from("admin_config").select("value").eq("key", "referral_bonus_tickets").single();
-      const bonus = bonusCfg?.value || 50;
-      const { data: rp } = await db().from("profiles").select("tickets_current, tickets_lifetime").eq("node_id", nd.referred_by).single();
-      if (rp) {
-        await db().from("profiles").update({
-          tickets_current: (rp.tickets_current || 0) + bonus,
-          tickets_lifetime: (rp.tickets_lifetime || 0) + bonus,
-        }).eq("node_id", nd.referred_by);
-        await db().from("transactions").insert({
-          node_id: nd.referred_by, type: "tickets", amount: bonus,
-          source: "referral", source_id: nodeId, balance_after: (rp.tickets_current || 0) + bonus,
-        });
-      }
-    }
-    
-    // TAREA 1: Mensaje Automático
-    const { data: channel } = await db().from("node_channels")
-      .select("channel_identifier").eq("node_id", nodeId).eq("channel", "telegram").single();
-      
-    if (channel?.channel_identifier && botToken()) {
-      try {
-        const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN
-          ? "https://" + process.env.RAILWAY_PUBLIC_DOMAIN
-          : "https://brutal-production-production-24da.up.railway.app";
-          
-        await fetch(`https://api.telegram.org/bot${botToken()}/sendMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: channel.channel_identifier,
-            text: `🔥 Estás adentro. Jugá tu primer Drop.`,
-            reply_markup: {
-              inline_keyboard: [[
-                { text: "▶️ Jugar", web_app: { url: baseUrl } }
-              ]]
-            }
-          })
-        });
-      } catch (e) {
-        console.error("[BOT] Welcome active message failed:", e);
-      }
-    }
-  }
-
-  const updateData: any = { status, updated_at: new Date().toISOString() };
-  if (status === "active") updateData.approved_at = new Date().toISOString();
-
-  const { error } = await db().from("nodes").update(updateData).eq("node_id", nodeId);
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json({ ok: true, status, application: { applicationId: nodeId, status } });
-});
-
-app.delete("/admin/users/:id", requirePanel, async (c) => {
-  await db().from("nodes").update({ status: "deleted", updated_at: new Date().toISOString() }).eq("node_id", c.req.param("id"));
-  return c.json({ ok: true });
-});
-
-app.get("/admin/users/export", requirePanel, async (c) => {
-  const { data } = await db().from("nodes")
-    .select("node_id, nickname, phone, age, gender, location_province, status, compass_archetype, referral_code, created_at, profiles(cash_balance, tickets_current, drops_completed)")
-    .order("created_at", { ascending: false });
-
-  if (!data?.length) return c.text("No data");
-  const hdr = "node_id,nickname,phone,age,gender,province,status,archetype,referral_code,cash,tickets,drops,created_at";
-  const rows = data.map((n: any) => {
-    const p = Array.isArray(n.profiles) ? n.profiles[0] : n.profiles || {};
-    return `${n.node_id},${n.nickname||""},${n.phone||""},${n.age||""},${n.gender||""},${n.location_province||""},${n.status},${n.compass_archetype||""},${n.referral_code||""},${p.cash_balance||0},${p.tickets_current||0},${p.drops_completed||0},${n.created_at}`;
-  });
-  c.header("Content-Type", "text/csv");
-  c.header("Content-Disposition", "attachment; filename=brutal-nodes.csv");
-  return c.text([hdr, ...rows].join("\n"));
-});
-
-app.post("/admin/reset-tickets", requirePanel, async (c) => {
-  const { error } = await db().from("profiles").update({ tickets_current: 0 });
-  if (error) return c.json({ error: error.message }, 500);
-  const { count } = await db().from("profiles").select("*", { count: "exact", head: true });
-  return c.json({ ok: true, resetCount: count || 0 });
+  return c.json({ applications, count: count || 0 });
 });
 
 // ============================================================================
