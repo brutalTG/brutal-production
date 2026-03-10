@@ -42,6 +42,25 @@ export function RafagaBurstQuestion({
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
 
+  // Defensive reset on mount — ensures fresh state if React reuses the fiber
+  useEffect(() => {
+    currentIdxRef.current = 0;
+    answersRef.current = new Array(items.length).fill(null);
+    completedRef.current = false;
+    transitioningRef.current = false;
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    setPhase("pre");
+    setCountdownValue(3);
+    setCurrentIdx(0);
+    setBlinkOpacity(1);
+    setTransitioning(false);
+    setSubProgress(100);
+    setSelectedValue(null);
+  }, [items]);
+
   const total = items.length;
   const item = items[currentIdx];
 
