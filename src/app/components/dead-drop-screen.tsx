@@ -7,8 +7,8 @@ interface DeadDropScreenProps {
   onComplete: () => void;
 }
 
-const TYPEWRITER_SPEED = 55; // ms per character
-const CODE_LINE_DELAY = 90; // ms between code lines appearing
+const TYPEWRITER_SPEED = 70; // ms per character
+const CODE_LINE_DELAY = 40; // ms between code lines appearing
 const CURSOR_BLINK_MS = 400; // ms per blink cycle
 const CURSOR_BLINKS = 2; // blink N times after everything is done
 const POST_BLINK_DELAY = 400; // ms after last blink before auto-advancing
