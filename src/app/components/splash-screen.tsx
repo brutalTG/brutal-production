@@ -203,8 +203,8 @@ function TerminalSplash({
           }
           return prev + 1;
         });
-      }, 25);
-    }, 600);
+      }, 35);
+    }, 400);
     return () => {
       clearTimeout(startDelay);
       if (intervalRef.current) clearInterval(intervalRef.current);
