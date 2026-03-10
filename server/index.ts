@@ -790,7 +790,7 @@ app.post("/apply", async (c) => {
   }
 
   const isComplete = nickname && age && gender;
-  const status = isComplete ? "pending" : "incomplete";
+  const status = isComplete ? "active" : "incomplete";
 
   // PARCHE B: BUSCAR SI EL WEBHOOK YA CREÓ EL CASCARÓN POR CONDICIÓN DE CARRERA
   let existingNodeId = null;
@@ -1072,7 +1072,7 @@ app.put("/apply/:nodeId/complete", async (c) => {
   if (!node) return c.json({ ok: false, error: "Node not found" }, 404);
   const { error } = await db().from("nodes").update({
     compass_vector: compass_vector || null, compass_archetype: compass_archetype || null,
-    brand_vector: brand_vector || null, handles: handles || null, onboarding_step: 99, status: "pending",
+    brand_vector: brand_vector || null, handles: handles || null, onboarding_step: 99, status: "active",
   }).eq("node_id", nodeId);
   if (error) return c.json({ ok: false, error: error.message }, 500);
   
