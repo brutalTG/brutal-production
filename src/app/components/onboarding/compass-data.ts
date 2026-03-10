@@ -1,5 +1,14 @@
 // ============================================================
-// COMPASS DATA — Default 5 rafagas, 30 pairs, 8 archetypes
+// COMPASS DATA — 5 rafagas, 30 pairs, 8 archetypes
+// ============================================================
+//
+// EJES:
+// X: SISTEMA (-1) ←→ GRIETA (+1)  — ¿Operás dentro de las reglas o las esquivás?
+// Y: BUNKER (-1) ←→ VITRINA (+1)  — ¿Tu identidad la procesás adentro o la exhibís?
+// Z: CALCULO (-1) ←→ FUEGO (+1)   — ¿Actuás con cabeza fría o con impulso?
+//
+// Cada ráfaga: 6 pares, 2 por eje. Statements que ocultan el eje bajo tema.
+// optionAPolarity: elegir opción A empuja hacia ese valor del eje.
 // ============================================================
 
 import type { CompassRafaga, Archetype } from "./compass-types";
@@ -9,16 +18,22 @@ import type { CompassRafaga, Archetype } from "./compass-types";
 const RAFAGA_PLATA: CompassRafaga = {
   id: "plata",
   label: "PLATA",
-  theme: "Como te relacionas con el dinero, el gasto y el riesgo.",
+  theme: "Cómo te relacionás con la guita, el gasto y el riesgo.",
   promptBold: "PLATA",
   secondsPerItem: 2,
   pairs: [
-    { id: "p1", text: "Gastar o guardar?", optionA: "\u{1F525}", optionB: "\u{1FA99}", axis: "Z", optionAPolarity: 1 },
-    { id: "p2", text: "Sueldo fijo o rebusque?", optionA: "\u{1F3E2}", optionB: "\u{1F3B2}", axis: "X", optionAPolarity: -1 },
-    { id: "p3", text: "Marca o precio?", optionA: "\u{1F451}", optionB: "\u{1F3F7}\uFE0F", axis: "Y", optionAPolarity: 1 },
-    { id: "p4", text: "Crypto o banco?", optionA: "\u{1FA99}", optionB: "\u{1F3E6}", axis: "X", optionAPolarity: 1 },
-    { id: "p5", text: "Experiencia o cosa?", optionA: "\u{1F3AA}", optionB: "\u{1F4E6}", axis: "Z", optionAPolarity: 1 },
-    { id: "p6", text: "Mostras lo que compras?", optionA: "\u{1F4F8}", optionB: "\u{1F507}", axis: "Y", optionAPolarity: 1 },
+    // Z: FUEGO (+1) — impulso financiero sin red
+    { id: "p1", text: "Me endeudo si me copa", optionA: "🔥", optionB: "🧊", axis: "Z", optionAPolarity: 1 },
+    // X: GRIETA (+1) — operar por fuera del sistema fiscal
+    { id: "p2", text: "Si puedo evitar pagar impuestos, lo hago", optionA: "✅", optionB: "❌", axis: "X", optionAPolarity: 1 },
+    // Y: VITRINA (+1) — consumo como identidad pública
+    { id: "p3", text: "Muestro lo que me compro", optionA: "📸", optionB: "🔇", axis: "Y", optionAPolarity: 1 },
+    // Z: CALCULO (-1) — aversión al riesgo
+    { id: "p4", text: "Prefiero poco seguro a mucho incierto", optionA: "🔒", optionB: "🎲", axis: "Z", optionAPolarity: -1 },
+    // X: GRIETA (+1) — contrato social roto
+    { id: "p5", text: "Si el Estado no me da nada, no le debo nada", optionA: "✅", optionB: "❌", axis: "X", optionAPolarity: 1 },
+    // Y: VITRINA (+1) — consumo relativo, status
+    { id: "p6", text: "Me comparo con lo que tienen otros", optionA: "😬", optionB: "🚫", axis: "Y", optionAPolarity: 1 },
   ],
 };
 
@@ -27,16 +42,22 @@ const RAFAGA_PLATA: CompassRafaga = {
 const RAFAGA_PANTALLA: CompassRafaga = {
   id: "pantalla",
   label: "PANTALLA",
-  theme: "Como vivis tu vida digital, que consumis, donde estas.",
+  theme: "Cómo vivís tu vida digital.",
   promptBold: "PANTALLA",
   secondsPerItem: 2,
   pairs: [
-    { id: "d1", text: "Feed o algoritmo?", optionA: "\u{1F4F8}", optionB: "\u{1F3B5}", axis: "Y", optionAPolarity: 1 },
-    { id: "d2", text: "Comentas o lurkeas?", optionA: "\u{1F4E2}", optionB: "\u{1F440}", axis: "Y", optionAPolarity: 1 },
-    { id: "d3", text: "Grupo grande o chat chico?", optionA: "\u{1F3DF}\uFE0F", optionB: "\u{1F510}", axis: "Y", optionAPolarity: 1 },
-    { id: "d4", text: "Noticias o memes?", optionA: "\u{1F4F0}", optionB: "\u{1F480}", axis: "X", optionAPolarity: -1 },
-    { id: "d5", text: "Tutorial o improvisar?", optionA: "\u{1F4DA}", optionB: "\u{1F937}", axis: "Z", optionAPolarity: -1 },
-    { id: "d6", text: "Playlist o shuffle?", optionA: "\u{1F4CB}", optionB: "\u{1F500}", axis: "Z", optionAPolarity: -1 },
+    // Y: BUNKER (-1) — consumo voyeurista oculto
+    { id: "d1", text: "Stalkeé a alguien hoy", optionA: "🙋", optionB: "🚫", axis: "Y", optionAPolarity: -1 },
+    // X: GRIETA (+1) — el algoritmo como autoridad no institucional
+    { id: "d2", text: "Mi feed me conoce mejor que mis amigos", optionA: "😬", optionB: "🚫", axis: "X", optionAPolarity: 1 },
+    // Y: VITRINA (+1) — validación numérica
+    { id: "d3", text: "Borro lo que publico si no llega a X likes", optionA: "✅", optionB: "❌", axis: "Y", optionAPolarity: 1 },
+    // Z: CALCULO (-1) — control sobre la dependencia
+    { id: "d4", text: "Podría dejar las redes un mes", optionA: "💪", optionB: "😂", axis: "Z", optionAPolarity: -1 },
+    // Y: BUNKER (-1) — identidad digital secreta
+    { id: "d5", text: "Sigo cuentas que no le diría a nadie", optionA: "🫣", optionB: "🚫", axis: "Y", optionAPolarity: -1 },
+    // Z: FUEGO (+1) — impulsividad digital
+    { id: "d6", text: "Publiqué en caliente y me arrepentí", optionA: "🔥", optionB: "🚫", axis: "Z", optionAPolarity: 1 },
   ],
 };
 
@@ -45,16 +66,22 @@ const RAFAGA_PANTALLA: CompassRafaga = {
 const RAFAGA_RUIDO: CompassRafaga = {
   id: "ruido",
   label: "RUIDO",
-  theme: "Que te prende, que te aburre, como consumis cultura.",
+  theme: "Qué te prende, qué te aburre, cómo consumís cultura.",
   promptBold: "RUIDO",
   secondsPerItem: 2,
   pairs: [
-    { id: "r1", text: "Joda o casa?", optionA: "\u{1FA69}", optionB: "\u{1F6CB}\uFE0F", axis: "Y", optionAPolarity: 1 },
-    { id: "r2", text: "Mainstream o under?", optionA: "\u{1F4FB}", optionB: "\u{1F526}", axis: "X", optionAPolarity: -1 },
-    { id: "r3", text: "Plan o improviso?", optionA: "\u{1F4C5}", optionB: "\u26A1", axis: "Z", optionAPolarity: -1 },
-    { id: "r4", text: "Solo o en grupo?", optionA: "\u{1F3A7}", optionB: "\u{1F465}", axis: "Y", optionAPolarity: -1 },
-    { id: "r5", text: "Clasico o ultimo?", optionA: "\u{1F519}", optionB: "\u{1F195}", axis: "X", optionAPolarity: -1 },
-    { id: "r6", text: "Sentir o pensar?", optionA: "\u{1FAC0}", optionB: "\u{1F9E0}", axis: "Z", optionAPolarity: 1 },
+    // X: GRIETA (+1) — identidad contra lo masivo
+    { id: "r1", text: "Lo mainstream me da vergüenza", optionA: "😬", optionB: "🚫", axis: "X", optionAPolarity: 1 },
+    // Y: VITRINA (+1) — compartir como parte del placer
+    { id: "r2", text: "Si me gusta algo, necesito contarlo", optionA: "📢", optionB: "🔇", axis: "Y", optionAPolarity: 1 },
+    // Z: FUEGO (+1) — adicción a la novedad
+    { id: "r3", text: "Me aburro si no pasa algo nuevo cada día", optionA: "✅", optionB: "❌", axis: "Z", optionAPolarity: 1 },
+    // X: SISTEMA (-1) — delegación cultural al algoritmo
+    { id: "r4", text: "Escucho lo que me recomienda el algoritmo", optionA: "✅", optionB: "❌", axis: "X", optionAPolarity: -1 },
+    // Y: BUNKER (-1) — placer privado
+    { id: "r5", text: "Disfruto más las cosas solo que acompañado", optionA: "🏝️", optionB: "🚫", axis: "Y", optionAPolarity: -1 },
+    // Z: CALCULO (-1) — comfort, paciencia, profundidad
+    { id: "r6", text: "Puedo ver lo mismo 10 veces y no aburrirme", optionA: "✅", optionB: "❌", axis: "Z", optionAPolarity: -1 },
   ],
 };
 
@@ -63,16 +90,22 @@ const RAFAGA_RUIDO: CompassRafaga = {
 const RAFAGA_PODER: CompassRafaga = {
   id: "poder",
   label: "PODER",
-  theme: "Que pensas del sistema, de la autoridad, de las reglas.",
+  theme: "Qué pensás del sistema, de la autoridad, de las reglas.",
   promptBold: "PODER",
   secondsPerItem: 2,
   pairs: [
-    { id: "w1", text: "Votar sirve?", optionA: "\u{1F5F3}\uFE0F", optionB: "\u{1F5D1}\uFE0F", axis: "X", optionAPolarity: -1 },
-    { id: "w2", text: "Merito o contacto?", optionA: "\u{1F4AA}", optionB: "\u{1F91D}", axis: "X", optionAPolarity: -1 },
-    { id: "w3", text: "Ley o calle?", optionA: "\u2696\uFE0F", optionB: "\u{1F525}", axis: "X", optionAPolarity: -1 },
-    { id: "w4", text: "Opinas o te guardas?", optionA: "\u{1F4E2}", optionB: "\u{1F910}", axis: "Y", optionAPolarity: 1 },
-    { id: "w5", text: "Lider o manada?", optionA: "\u{1F43A}", optionB: "\u{1F411}", axis: "Z", optionAPolarity: 1 },
-    { id: "w6", text: "Cambio o estabilidad?", optionA: "\u{1F4A3}", optionB: "\u{1F9F1}", axis: "Z", optionAPolarity: 1 },
+    // X: GRIETA (+1) — fatalismo institucional
+    { id: "w1", text: "Los que mandan no cambian nunca", optionA: "✅", optionB: "❌", axis: "X", optionAPolarity: 1 },
+    // Y: VITRINA (+1) — poder visible
+    { id: "w2", text: "Si tengo poder, quiero que se note", optionA: "👑", optionB: "🚫", axis: "Y", optionAPolarity: 1 },
+    // Z: FUEGO (+1) — impulsividad ante injusticia
+    { id: "w3", text: "Cuando algo me indigna, reacciono al toque", optionA: "🔥", optionB: "🧊", axis: "Z", optionAPolarity: 1 },
+    // X: SISTEMA (-1) — meritocracia legítima
+    { id: "w4", text: "Respeto a alguien que llegó sin romper reglas", optionA: "✅", optionB: "❌", axis: "X", optionAPolarity: -1 },
+    // Y: BUNKER (-1) — poder oculto
+    { id: "w5", text: "Prefiero mover cosas desde atrás", optionA: "🤫", optionB: "🚫", axis: "Y", optionAPolarity: -1 },
+    // Z: CALCULO (-1) — tolerancia estratégica
+    { id: "w6", text: "Me banco un jefe que no me gusta si me conviene", optionA: "✅", optionB: "❌", axis: "Z", optionAPolarity: -1 },
   ],
 };
 
@@ -81,16 +114,22 @@ const RAFAGA_PODER: CompassRafaga = {
 const RAFAGA_ESPEJO: CompassRafaga = {
   id: "espejo",
   label: "ESPEJO",
-  theme: "Como te ves, como te sentis, que te mueve.",
+  theme: "Cómo te ves, cómo te sentís, qué te mueve.",
   promptBold: "ESPEJO",
   secondsPerItem: 2,
   pairs: [
-    { id: "e1", text: "Presente o futuro?", optionA: "\u23F0", optionB: "\u{1F680}", axis: "Z", optionAPolarity: 1 },
-    { id: "e2", text: "Careta o sincero?", optionA: "\u{1F3AD}", optionB: "\u{1FA9E}", axis: "Y", optionAPolarity: 1 },
-    { id: "e3", text: "Solo o acompanado?", optionA: "\u{1F3DD}\uFE0F", optionB: "\u{1FAC2}", axis: "Y", optionAPolarity: -1 },
-    { id: "e4", text: "Aguantar o pedir ayuda?", optionA: "\u{1F9F1}", optionB: "\u{1F198}", axis: "Z", optionAPolarity: -1 },
-    { id: "e5", text: "Titulo o calle?", optionA: "\u{1F393}", optionB: "\u{1F6E3}\uFE0F", axis: "X", optionAPolarity: -1 },
-    { id: "e6", text: "Encajar o incomodar?", optionA: "\u{1F9E9}", optionB: "\u{1F994}", axis: "X", optionAPolarity: 1 },
+    // Y: BUNKER (-1) — identidad oculta
+    { id: "e1", text: "Hay una versión de mí que nadie conoce", optionA: "🫣", optionB: "🚫", axis: "Y", optionAPolarity: -1 },
+    // X: SISTEMA (-1) — mimetismo social
+    { id: "e2", text: "Me adapto al grupo en el que estoy", optionA: "🎭", optionB: "🚫", axis: "X", optionAPolarity: -1 },
+    // Z: FUEGO (+1) — intensidad contenida
+    { id: "e3", text: "Soy más intenso de lo que muestro", optionA: "🔥", optionB: "🚫", axis: "Z", optionAPolarity: 1 },
+    // X: GRIETA (+1) — identidad disruptiva
+    { id: "e4", text: "No encajo y no me jode", optionA: "✅", optionB: "❌", axis: "X", optionAPolarity: 1 },
+    // Y: VITRINA (+1) — dependencia de mirada ajena
+    { id: "e5", text: "Me importa lo que piensan de mí", optionA: "😬", optionB: "🚫", axis: "Y", optionAPolarity: 1 },
+    // Z: CALCULO (-1) — gratificación diferida
+    { id: "e6", text: "Puedo esperar mucho por algo que quiero", optionA: "✅", optionB: "❌", axis: "Z", optionAPolarity: -1 },
   ],
 };
 
@@ -105,70 +144,84 @@ export const DEFAULT_RAFAGAS: CompassRafaga[] = [
 ];
 
 // ── 8 ARCHETYPES ────────────────────────────────────────────
+//
+// Coords: x/y/z = -1 o +1
+// X: -1 = SISTEMA, +1 = GRIETA
+// Y: -1 = BUNKER,  +1 = VITRINA
+// Z: -1 = CALCULO, +1 = FUEGO
+//
 
 export const ARCHETYPES: Archetype[] = [
   {
-    id: "estratega",
-    name: "El Estratega",
-    emoji: "\u{1F9E0}",
+    id: "invisible",
+    name: "El Invisible",
+    emoji: "🧠",
     coords: { x: -1, y: -1, z: -1 },
     phrase: "Tengo un plan y no necesito que lo veas",
-    description: "Confian en las estructuras, viven hacia adentro, piensan con la cabeza. Son los que estudian la carrera que conviene, ahorran en plazo fijo, tienen el feed limpio y no postean hace meses.",
+    description:
+      "Operás dentro del sistema, vivís hacia adentro y calculás cada movimiento. Tu poder es que nadie sabe lo que estás armando. Ahorrás, esperás, y cuando movés, ya ganaste. El mundo te subestima y eso te conviene.",
   },
   {
-    id: "hacker",
-    name: "El Hacker",
-    emoji: "\u{1F4BB}",
+    id: "fantasma",
+    name: "El Fantasma",
+    emoji: "💻",
     coords: { x: 1, y: -1, z: -1 },
-    phrase: "El sistema no sirve, pero yo ya encontre la vuelta",
-    description: "Desconfian de todo, viven en privado, pero calculan cada movimiento. Crypto a las 3am, tres cuentas de mail, VPN. Perfil bajo, impacto alto.",
+    phrase: "El sistema no sirve, pero yo ya encontré la vuelta",
+    description:
+      "No confiás en nada, no mostrás nada, y sin embargo todo lo que hacés está calculado. Tres cuentas, VPN, cripto a las 3am. Nadie te ve, nadie te encuentra, y así te gusta. Perfil bajo, impacto quirúrgico.",
   },
   {
-    id: "curador",
-    name: "El Curador",
-    emoji: "\u{1F451}",
+    id: "vidriera",
+    name: "La Vidriera",
+    emoji: "👑",
     coords: { x: -1, y: 1, z: -1 },
-    phrase: "Todo lo que ves de mi esta pensado",
-    description: "Confian en las instituciones, cuidan su imagen, y piensan todo. LinkedIn a los 20, cada decision de consumo construye marca personal. El feed es portfolio, no diario.",
+    phrase: "Todo lo que ves de mí está pensado",
+    description:
+      "Confiás en las instituciones, cuidás tu imagen y pensás todo tres veces. Cada post construye marca personal, cada decisión de consumo es estratégica. Tu feed es un portfolio, no un diario. LinkedIn a los 20, plan a los 25.",
   },
   {
-    id: "performer",
-    name: "El Performer",
-    emoji: "\u{1F3AD}",
+    id: "truco",
+    name: "El Truco",
+    emoji: "🎭",
     coords: { x: 1, y: 1, z: -1 },
-    phrase: "No creo en el sistema pero se como usarlo",
-    description: "Desconfian del sistema pero viven hacia afuera, calculando cada movimiento. Entienden el algoritmo como herramienta economica. La grieta es su mercado.",
+    phrase: "No creo en el sistema pero sé cómo usarlo",
+    description:
+      "Desconfiás de todo pero vivís hacia afuera, calculando cada jugada. Entendés el algoritmo como herramienta económica, la grieta como mercado, y la atención como moneda. Nadie sabe si es personaje o persona. Ese es el punto.",
   },
   {
-    id: "guardian",
-    name: "El Guardian",
-    emoji: "\u{1F6E1}\uFE0F",
+    id: "bunker",
+    name: "El Búnker",
+    emoji: "🛡️",
     coords: { x: -1, y: -1, z: 1 },
-    phrase: "Banco lo mio y no necesito explicarselo a nadie",
-    description: "Confian en las estructuras y viven hacia adentro, pero se mueven por pasion. Estudian lo que les gusta, bancan un equipo con el corazon. Son leales. Cambian poco. Sienten mucho.",
+    phrase: "Banco lo mío y no necesito explicárselo a nadie",
+    description:
+      "Confiás en las estructuras, vivís hacia adentro, pero te movés por pasión. Estudiás lo que te gusta, bancás con el corazón, defendés con fuego lo que tenés adentro. Lealtad de hierro, círculo chico, intensidad que no se ve hasta que se siente.",
   },
   {
-    id: "salvaje",
-    name: "El Salvaje",
-    emoji: "\u{1F525}",
+    id: "motosierra",
+    name: "La Motosierra",
+    emoji: "🔥",
     coords: { x: 1, y: -1, z: 1 },
     phrase: "Me chupa todo un huevo y lo digo en serio",
-    description: "Desconfian de todo, viven en privado, y se mueven por impulso. Los mas dificiles de leer y los mas autenticos. Vida sin curaduria.",
+    description:
+      "No confiás en nada, no mostrás nada, y te movés por impulso puro. El más difícil de leer y el más auténtico. No hay curación, no hay estrategia, no hay plan B. Vida sin filtro, sin red, sin pedir permiso.",
   },
   {
-    id: "activista",
-    name: "El Activista",
-    emoji: "\u270A",
+    id: "megafono",
+    name: "El Megáfono",
+    emoji: "✊",
     coords: { x: -1, y: 1, z: 1 },
     phrase: "Esto me importa y necesito que te importe",
-    description: "Confian en la posibilidad de cambiar las cosas desde adentro, viven hacia afuera, y se mueven por conviccion emocional. La causa es identidad, no estrategia.",
+    description:
+      "Creés que se puede cambiar las cosas desde adentro, vivís hacia afuera y te movés por convicción emocional. La causa es identidad, no estrategia. Cuando algo te importa, no podés quedarte callado. El volumen no es ruido, es urgencia.",
   },
   {
-    id: "cometa",
-    name: "El Cometa",
-    emoji: "\u2604\uFE0F",
+    id: "incendio",
+    name: "El Incendio",
+    emoji: "☄️",
     coords: { x: 1, y: 1, z: 1 },
     phrase: "Prendo todo y ya fue",
-    description: "Desconfian de todo, viven hacia afuera, y se mueven por impulso. Pura intensidad publica. Volatiles, impredecibles, y culturalmente ruidosos.",
+    description:
+      "No confiás en nada, vivís hacia afuera y te movés por impulso. Pura intensidad pública. Cuando entrás a una conversación, cambia la temperatura. Volátil, impredecible, y culturalmente ruidoso. Lo que tocás no queda igual.",
   },
 ];
