@@ -1,6 +1,6 @@
 // ============================================================
 // ONBOARDING DATA — All steps configuration
-// Phase A = datos duros (unchanged), then compass rafagas
+// Phase A = datos duros, then compass rafagas
 // ============================================================
 
 import type { OnboardingStep } from "./onboarding-types";
@@ -79,13 +79,45 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
     id: "phone_brand",
     type: "single_choice",
     phase: "A",
-    copy: "Que celular tenes?",
+    copy: "Tu celular.",
     options: [
-      "iPhone (ultimo modelo)",
-      "iPhone (modelo anterior)",
-      "Samsung Galaxy S o A alto",
-      "Motorola/Xiaomi gama media",
-      "Otro",
+      "iPhone (2 años o menos)",
+      "iPhone (más viejo)",
+      "Android gama alta",
+      "Android gama media",
+      "Android básico",
+    ],
+  },
+  {
+    id: "platforms",
+    type: "multi_select",
+    phase: "A",
+    copy: "¿Qué usas todos los días?",
+    options: [
+      "TikTok",
+      "Instagram",
+      "YouTube",
+      "X",
+      "Twitch",
+      "Telegram",
+      "Discord",
+      "Spotify",
+    ],
+    minSelect: 1,
+    maxSelect: 4,
+  },
+  {
+    id: "ai_tool",
+    type: "single_choice",
+    phase: "A",
+    copy: "¿Qué IA usas como principal?",
+    options: [
+      "ChatGPT",
+      "Gemini",
+      "Claude",
+      "La de WhatsApp",
+      "Otra",
+      "Ninguna",
     ],
   },
 
