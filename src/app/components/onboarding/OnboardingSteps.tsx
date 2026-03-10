@@ -730,26 +730,27 @@ export function ClosingStepView({
   };
 
   return (
-    <div className="flex flex-col flex-1 items-center px-2 pt-6">
+    <div className="flex flex-col flex-1 justify-center items-center px-6 py-6">
       {/* Title */}
       <h1
-        className="font-['Silkscreen'] text-[29px] text-center mb-6"
+        className="font-[var(--skin-font-display)] text-[29px] uppercase text-center mb-6"
         style={{ color: "var(--dynamic-fg, #fff)" }}
       >
         Estas en la fila
       </h1>
 
-      {/* Position card */}
+      {/* Position card — duotone fg bg, duotone bg text */}
       <div
-        className="w-full max-w-[320px] rounded-[12px] px-5 pt-5 pb-4 mb-6"
+        className="w-full max-w-[332px] rounded-[12px] px-5 pt-5 pb-4 mb-6"
         style={{ backgroundColor: "var(--dynamic-fg, #fff)" }}
       >
+        {/* Row: label + badge */}
         <div className="flex items-center justify-between mb-2">
           <span
-            className="font-['Fira_Code'] font-semibold text-[17px]"
+            className="font-[var(--skin-font-mono)] font-semibold text-[19px]"
             style={{ color: "var(--dynamic-bg, #000)" }}
           >
-            Tu posicion
+            Tu posición
           </span>
           <span
             className="font-['Roboto'] font-bold text-[12px] px-2.5 py-1 rounded-[5px] tracking-tight"
