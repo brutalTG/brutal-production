@@ -685,6 +685,7 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
         {/* Question Content */}
         <div className="flex-1 flex flex-col gap-8 overflow-y-auto overflow-x-hidden">
           <QuestionRenderer
+            key={questionIndex}
             question={currentQuestion}
             questionIndex={questionIndex}
             pipeline={pipeline}
