@@ -9,16 +9,14 @@ interface ColorPair {
 }
 
 const PALETTES: ColorPair[] = [
-  { bg: "#0D0D0D", fg: "#F5F5F5" },   // negro casi puro / blanco roto
-  { bg: "#FF006E", fg: "#FFFF00" },     // magenta / amarillo
-  { bg: "#0000CC", fg: "#00FF66" },     // azul profundo / verde neon
-  { bg: "#1A0033", fg: "#00FFCC" },     // violeta oscuro / turquesa
-  { bg: "#FF4500", fg: "#000000" },     // naranja / negro
-  { bg: "#FFFF00", fg: "#8B0000" },     // amarillo / bordo
-  { bg: "#00CED1", fg: "#0A0A0A" },     // turquesa / negro
-  { bg: "#8B00FF", fg: "#CCFF00" },     // violeta / lima
-  { bg: "#DC143C", fg: "#F0FFF0" },     // carmesi / blanco menta
-  { bg: "#00FF00", fg: "#1A001A" },     // verde neon / negro violeta
+  { bg: "#fbba16", fg: "#00492c" },
+{ bg: "#9bccd0", fg: "#e22028" },
+{ bg: "#00492c", fg: "#fbba16" },
+{ bg: "#e22028", fg: "#9bccd0" },
+{ bg: "#e2b2b4", fg: "#1e4380" },
+{ bg: "#b1d8b8", fg: "#E04C26" },
+{ bg: "#1e4380", fg: "#e2b2b4" },
+{ bg: "#E04C26", fg: "#b1d8b8" },
 ];
 
 let currentIndex = -1; // starts at -1 so first call returns index 0
