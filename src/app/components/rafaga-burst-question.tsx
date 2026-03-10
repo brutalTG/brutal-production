@@ -108,8 +108,8 @@ export function RafagaBurstQuestion({
   }, []);
 
   const runBlinkAndAdvance = useCallback(
-    (nextIdx: number) => {
-      if (transitioningRef.current || completedRef.current) return;
+    (nextIdx: number, isCompleting = false) => {
+      if (transitioningRef.current || (completedRef.current && !isCompleting)) return;
       transitioningRef.current = true;
       setTransitioning(true);
       clearTimer();
@@ -120,20 +120,26 @@ export function RafagaBurstQuestion({
         if (step < BLINK_STEPS.length) {
           setBlinkOpacity(BLINK_STEPS[step]);
           if (step === BLINK_SWAP_AT) {
-            currentIdxRef.current = nextIdx;
-            setCurrentIdx(nextIdx);
-            setSelectedValue(null);
+            if (isCompleting) {
+              doComplete();
+            } else {
+              currentIdxRef.current = nextIdx;
+              setCurrentIdx(nextIdx);
+              setSelectedValue(null);
+            }
           }
           step++;
         } else {
           clearInterval(interval);
           setBlinkOpacity(1);
-          transitioningRef.current = false;
-          setTransitioning(false);
+          if (!isCompleting) {
+            transitioningRef.current = false;
+            setTransitioning(false);
+          }
         }
       }, BLINK_STEP_MS);
     },
-    []
+    [doComplete]
   );
 
   const advanceOrComplete = useCallback(() => {
@@ -141,11 +147,11 @@ export function RafagaBurstQuestion({
     const idx = currentIdxRef.current;
 
     if (idx >= total - 1) {
-      doComplete();
+      runBlinkAndAdvance(idx, true);
     } else {
       runBlinkAndAdvance(idx + 1);
     }
-  }, [total, doComplete, runBlinkAndAdvance]);
+  }, [total, runBlinkAndAdvance]);
 
   // Auto-advance timer — only runs during "playing" phase
   // For slider interactions, we pause the auto-timer (user must press Confirmar)
@@ -174,13 +180,13 @@ export function RafagaBurstQuestion({
 
       setTimeout(() => {
         if (isLast) {
-          doComplete();
+          runBlinkAndAdvance(idx, true);
         } else {
           runBlinkAndAdvance(idx + 1);
         }
       }, POST_SELECT_DELAY);
     },
-    [total, doComplete, runBlinkAndAdvance]
+    [total, runBlinkAndAdvance]
   );
 
   // Sub-timer progress bar — only runs during "playing" phase (not for slider)
