@@ -56,21 +56,35 @@ function useNodeGate() {
     if (checkedRef.current) return;
     checkedRef.current = true;
 
-    const telegramUserId = getTelegramUserId();
-    // If not running inside Telegram, skip the gate (dev/preview mode)
-    if (!telegramUserId) {
-      console.log("[BRUTAL] No Telegram user ID — skipping node gate (dev mode)");
-      setStatus("active");
-      return;
-    }
+    useEffect(() => {
+    if (checkedRef.current) return;
+    checkedRef.current = true;
 
-    // Check preview mode
+    // 1. Check preview mode (Panel de Admin)
     const params = new URLSearchParams(window.location.search);
     if (params.has("preview")) {
       console.log("[BRUTAL] Preview mode — skipping node gate");
       setStatus("active");
       return;
     }
+
+    // 2. Si NO es preview, EXIGIMOS que esté en Telegram
+    const telegramUserId = getTelegramUserId();
+    if (!telegramUserId) {
+      console.log("[BRUTAL] Fuera de Telegram — Redirigiendo al bot automáticamente");
+      
+      // Acá está la magia de la redirección automática:
+      window.location.href = "https://t.me/BrutalDropBot"; // ¡ACORDATE DE PONER TU BOT REAL ACÁ!
+      
+      // Lo dejamos en "loading" para que la pantalla se quede cargando ese microsegundo antes de saltar a Telegram
+      setStatus("loading"); 
+      return;
+    }
+
+    // Get Telegram initData for auth
+    const initData = (window as any).Telegram?.WebApp?.initData || "";
+    
+    // ... acá sigue el fetch("/gate", ...) que ya tenías
 
     // Get Telegram initData for auth
     const initData = (window as any).Telegram?.WebApp?.initData || "";
