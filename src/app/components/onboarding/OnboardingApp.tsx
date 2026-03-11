@@ -81,46 +81,6 @@ export default function OnboardingApp() {
   const [duotoneColors, setDuotoneColors] = useState({ bg: "#000000", fg: "#FFFFFF" });
   const firstStepDone = useRef(false);
 
-// --- CHECKPOINT DE DATOS DUROS ---
-  const checkpointSaved = useRef(false);
-
-  useEffect(() => {
-    // Si el usuario llega a la fase "compass" (ráfagas) y no guardamos el checkpoint todavía
-    if (currentStep.phase === "compass" && !checkpointSaved.current) {
-      checkpointSaved.current = true;
-      
-      const saveHardDataCheckpoint = async () => {
-        try {
-          const initData = (window as any).Telegram?.WebApp?.initData || "";
-          const tgUserId = getTelegramUserId();
-          
-          // Llamado silencioso al endpoint /apply (que ya sabe cómo actualizar nodos existentes)
-          await fetch("/apply", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(initData ? { "X-Telegram-Init-Data": initData } : {})
-            },
-            body: JSON.stringify({
-              telegramUserId: tgUserId,
-              phone: answers.phone,
-              nickname: answers.nickname,
-              age: answers.age,
-              gender: answers.gender,
-              location: answers.location,
-              phoneBrand: answers.phone_brand || answers.phoneBrand
-            })
-          });
-          console.log("[BRUTAL] 💾 Checkpoint de datos duros guardado en Supabase");
-        } catch (err) {
-          console.error("[BRUTAL] ❌ Falló el guardado del checkpoint:", err);
-        }
-      };
-
-      saveHardDataCheckpoint();
-    }
-  }, [currentStep.phase, answers]);
-  
   // Compass rafagas — fetched from server, fallback to defaults
   const [rafagas, setRafagas] = useState<CompassRafaga[]>(DEFAULT_RAFAGAS);
 
@@ -176,6 +136,47 @@ export default function OnboardingApp() {
 
   const currentStep = ONBOARDING_STEPS[stepIndex];
   const totalSteps = ONBOARDING_STEPS.length;
+
+  // --- CHECKPOINT DE DATOS DUROS ---
+  const checkpointSaved = useRef(false);
+
+  useEffect(() => {
+    // Si el usuario llega a la fase "compass" (ráfagas) y no guardamos el checkpoint todavía
+    if (currentStep && currentStep.phase === "compass" && !checkpointSaved.current) {
+      checkpointSaved.current = true;
+      
+      const saveHardDataCheckpoint = async () => {
+        try {
+          const initData = (window as any).Telegram?.WebApp?.initData || "";
+          const tgUserId = getTelegramUserId();
+          
+          // Llamado silencioso al endpoint /apply (que ya sabe cómo actualizar nodos existentes)
+          await fetch("/apply", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(initData ? { "X-Telegram-Init-Data": initData } : {})
+            },
+            body: JSON.stringify({
+              telegramUserId: tgUserId,
+              phone: answers.phone,
+              nickname: answers.nickname,
+              age: answers.age,
+              gender: answers.gender,
+              location: answers.location,
+              phoneBrand: answers.phone_brand || answers.phoneBrand
+            })
+          });
+          console.log("[BRUTAL] 💾 Checkpoint de datos duros guardado en Supabase");
+        } catch (err) {
+          console.error("[BRUTAL] ❌ Falló el guardado del checkpoint:", err);
+        }
+      };
+
+      saveHardDataCheckpoint();
+    }
+  }, [currentStep, answers]);
+  // ------------------------------------
 
   // Count progress (only A + compass steps for the bar)
   const questionSteps = ONBOARDING_STEPS.filter(
