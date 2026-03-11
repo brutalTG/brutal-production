@@ -613,7 +613,7 @@ app.post("/sessions/notify", requireTelegram, async (c) => {
 
   const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN
     ? "https://" + process.env.RAILWAY_PUBLIC_DOMAIN
-    : "https://brutal-production-production-24da.up.railway.app";
+    : "https://brutal.up.railway.app";
 
   try {
     const { data: channel } = await db().from("node_channels")
@@ -1423,7 +1423,7 @@ app.put("/admin/users/:id/status", requirePanel, async (c) => {
             parse_mode: "HTML",
             reply_markup: {
               inline_keyboard: [[
-                { text: "🔥 Entrar a BRUTAL", web_app: { url: `https://brutal-production-production-24da.up.railway.app/` } }
+                { text: "🔥 Entrar a BRUTAL", web_app: { url: `https://brutal.up.railway.app/` } }
               ]]
             }
           }),
@@ -1785,7 +1785,7 @@ app.post("/bot/webhook", async (c) => {
         text: `⚡ <b>BRUTAL</b>\n\nHola.\n\nRegistrate para jugar Drops, ganar plata real y competir por premios.`,
         parse_mode: "HTML",
         reply_markup: { inline_keyboard: [[
-          { text: "🔥 Entrar", web_app: { url: `https://brutal-production-production-24da.up.railway.app/entrar` } }
+          { text: "🔥 Entrar", web_app: { url: `https://brutal.up.railway.app/entrar` } }
         ]] }
       });
       return c.json({ ok: true });
@@ -1805,7 +1805,7 @@ app.post("/bot/webhook", async (c) => {
         text: msgs[node.status] || "⚠️ Tu cuenta no está activa.",
         parse_mode: "HTML",
         ...(node.status === "incomplete" ? { reply_markup: { inline_keyboard: [[
-          { text: "📝 Completar registro", web_app: { url: `https://brutal-production-production-24da.up.railway.app/entrar` } }
+          { text: "📝 Completar registro", web_app: { url: `https://brutal.up.railway.app/entrar` } }
         ]] } } : {})
       });
       return c.json({ ok: true });
@@ -1817,7 +1817,7 @@ app.post("/bot/webhook", async (c) => {
       text: `⚡ <b>BRUTAL</b>\n\nBienvenido de vuelta, ${displayName}.\n\nUsá /drop para jugar, /perfil para ver tu balance, /leaderboard para el ranking.`,
       parse_mode: "HTML",
       reply_markup: { inline_keyboard: [[
-        { text: "▶️ Jugar Drop", web_app: { url: `https://brutal-production-production-24da.up.railway.app` } }
+        { text: "▶️ Jugar Drop", web_app: { url: `https://brutal.up.railway.app` } }
       ]] }
     });
     return c.json({ ok: true });
@@ -1831,7 +1831,7 @@ app.post("/bot/webhook", async (c) => {
     if (!node) {
       await tgSend("sendMessage", {
         chat_id: chatId, text: "⚡ Todavía no sos parte de <b>BRUTAL</b>.\n\nRegistrate para jugar Drops, ganar plata y competir por premios.", parse_mode: "HTML",
-        reply_markup: { inline_keyboard: [[{ text: "🔥 Entrar", web_app: { url: `https://brutal-production-production-24da.up.railway.app/entrar` } }]] }
+        reply_markup: { inline_keyboard: [[{ text: "🔥 Entrar", web_app: { url: `https://brutal.up.railway.app/entrar` } }]] }
       });
       return c.json({ ok: true });
     }
@@ -1844,7 +1844,7 @@ app.post("/bot/webhook", async (c) => {
       };
       await tgSend("sendMessage", {
         chat_id: chatId, text: msgs[node.status] || "⚠️ Tu cuenta no está activa.", parse_mode: "HTML",
-        ...(node.status === "incomplete" ? { reply_markup: { inline_keyboard: [[{ text: "📝 Completar registro", web_app: { url: `https://brutal-production-production-24da.up.railway.app/entrar` } }]] } } : {})
+        ...(node.status === "incomplete" ? { reply_markup: { inline_keyboard: [[{ text: "📝 Completar registro", web_app: { url: `https://brutal.up.railway.app/entrar` } }]] } } : {})
       });
       return c.json({ ok: true });
     }
@@ -1863,7 +1863,7 @@ app.post("/bot/webhook", async (c) => {
     
     await tgSend("sendMessage", {
       chat_id: chatId, text: `🎯 <b>${activeDrop.name}</b> está activo.\n\nResponde rápido, ganá monedas y tickets.`, parse_mode: "HTML",
-      reply_markup: { inline_keyboard: [[{ text: "▶️ Jugar", web_app: { url: `https://brutal-production-production-24da.up.railway.app` } }]] }
+      reply_markup: { inline_keyboard: [[{ text: "▶️ Jugar", web_app: { url: `https://brutal.up.railway.app` } }]] }
     });
     return c.json({ ok: true });
   }
@@ -1900,7 +1900,7 @@ app.post("/bot/webhook", async (c) => {
     if (!node) {
       await tgSend("sendMessage", {
         chat_id: chatId, text: "⚠️ No estás registrado. Abrí la app primero.",
-        reply_markup: { inline_keyboard: [[{ text: "🔥 Abrir BRUTAL", web_app: { url: `https://brutal-production-production-24da.up.railway.app/entrar` } }]] }
+        reply_markup: { inline_keyboard: [[{ text: "🔥 Abrir BRUTAL", web_app: { url: `https://brutal.up.railway.app/entrar` } }]] }
       });
       return c.json({ ok: true });
     }
@@ -1932,7 +1932,7 @@ app.post("/bot/webhook", async (c) => {
       if (!node) {
         await tgSend("sendMessage", {
           chat_id: chatId, text: "⚠️ No estás registrado. Abrí la app primero.",
-          reply_markup: { inline_keyboard: [[{ text: "🔥 Abrir BRUTAL", web_app: { url: `https://brutal-production-production-24da.up.railway.app/entrar` } }]] }
+          reply_markup: { inline_keyboard: [[{ text: "🔥 Abrir BRUTAL", web_app: { url: `https://brutal.up.railway.app/entrar` } }]] }
         });
         return c.json({ ok: true });
       }
@@ -2084,7 +2084,7 @@ app.post("/bot/send-notification", requirePanel, async (c) => {
   }
   let replyMarkup: any = undefined;
   if (type === "drop" && buttonText) {
-    replyMarkup = { inline_keyboard: [[{ text: buttonText, web_app: { url: `https://brutal-production-production-24da.up.railway.app/` } }]] };
+    replyMarkup = { inline_keyboard: [[{ text: buttonText, web_app: { url: `https://brutal.up.railway.app/` } }]] };
   } else if (buttonText && buttonUrl) {
     replyMarkup = { inline_keyboard: [[{ text: buttonText, url: buttonUrl }]] };
   }
@@ -2171,7 +2171,7 @@ app.put("/admin/users/bulk-status", requirePanel, async (c) => {
                 parse_mode: "HTML",
                 reply_markup: {
                   inline_keyboard: [[
-                    { text: "🔥 Entrar a BRUTAL", web_app: { url: `https://brutal-production-production-24da.up.railway.app/` } }
+                    { text: "🔥 Entrar a BRUTAL", web_app: { url: `https://brutal.up.railway.app/` } }
                   ]]
                 }
               }),
