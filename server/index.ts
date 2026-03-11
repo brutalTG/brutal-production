@@ -934,8 +934,9 @@ app.post("/apply/init", async (c) => {
   let normalPhone = null;
   if (phone !== "telegram_verified") {
     const clean = phone.replace(/\D/g, "");
-    if (!clean.startsWith("54") || clean.length < 10 || clean.length > 13) {
-      return c.json({ ok: false, error: "Invalid phone" }, 400);
+    // FIX: Validación estricta para celulares de Argentina (+54 y 12 o 13 dígitos)
+    if (!clean.startsWith("54") || clean.length < 12 || clean.length > 13) {
+      return c.json({ ok: false, error: "Teléfono inválido. Debe incluir +54 y código de área." }, 400);
     }
     normalPhone = "+" + clean;
   }
@@ -945,19 +946,27 @@ app.post("/apply/init", async (c) => {
      const { data: ch } = await db().from("node_channels")
        .select("node_id").eq("channel", "telegram").eq("channel_identifier", String(telegram_user_id)).single();
      if (ch) {
-       const { data: node } = await db().from("nodes").select("node_id, status, onboarding_step, referral_code").eq("node_id", ch.node_id).single();
+       // FIX: Sumamos "phone" al select para ver si el nodo lo tiene vacío
+       const { data: node } = await db().from("nodes").select("node_id, status, onboarding_step, referral_code, phone").eq("node_id", ch.node_id).single();
        existing = node;
      }
   }
   if (!existing && normalPhone) {
     const { data: nodeByPhone } = await db().from("nodes")
-      .select("node_id, status, onboarding_step, referral_code").eq("phone", normalPhone).single();
+      .select("node_id, status, onboarding_step, referral_code, phone").eq("phone", normalPhone).single();
     existing = nodeByPhone;
   }
 
   if (existing) {
-    if (Object.keys(tgFields).length > 0) {
-      await db().from("nodes").update(tgFields).eq("node_id", existing.node_id);
+    const updates: any = { ...tgFields };
+    
+    // FIX: Si el usuario ya existía pero no tenía teléfono guardado, lo guardamos ahora
+    if (normalPhone && !existing.phone) {
+      updates.phone = normalPhone;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await db().from("nodes").update(updates).eq("node_id", existing.node_id);
     }
     return c.json({
       ok: true, resumed: true,
@@ -1009,9 +1018,22 @@ app.put("/apply/:nodeId/step", async (c) => {
     .select("node_id, status, onboarding_data").eq("node_id", nodeId).single();
   if (!node) return c.json({ ok: false, error: "Node not found" }, 404);
 
-  const coreFields = ["nickname", "age", "gender", "location_province", "location_city", "phone_brand"];
+  // FIX: Agregamos "phone" a los coreFields para que lo guarde en la columna correcta
+  const coreFields = ["phone", "nickname", "age", "gender", "location_province", "location_city", "phone_brand"];
+  
   if (coreFields.includes(step)) {
-    const { error } = await db().from("nodes").update({ [step]: value }).eq("node_id", nodeId);
+    let finalValue = value;
+    
+    // FIX: Validación estricta también si mandan el paso por separado
+    if (step === "phone") {
+      const clean = String(value).replace(/\D/g, "");
+      if (!clean.startsWith("54") || clean.length < 12 || clean.length > 13) {
+         return c.json({ ok: false, error: "Formato inválido. Usá el formato +54 9..." }, 400);
+      }
+      finalValue = "+" + clean;
+    }
+
+    const { error } = await db().from("nodes").update({ [step]: finalValue }).eq("node_id", nodeId);
     if (error) return c.json({ ok: false, error: error.message }, 500);
   } else {
     const current = node.onboarding_data || {};
