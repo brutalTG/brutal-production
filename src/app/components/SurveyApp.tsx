@@ -251,18 +251,36 @@ function useDropLoader() {
 // ============================================================
 // Main Survey Component
 // ============================================================
+import { useNavigate } from "react-router"; // (o react-router-dom, dependiendo de lo que uses)
 
 export default function SurveyApp() {
   const { drop, source } = useDropLoader();
   const { status: nodeStatus, nickname } = useNodeGate();
+  const navigate = useNavigate();
 
   // Shared result page intercept (doesn't need drop)
   const sharedResult = parseSharedResult();
   if (sharedResult) return <SharedResultPage data={sharedResult} />;
 
+  // Redirecciones del patovica:
+  useEffect(() => {
+    // Si la puerta nos dice que no existe ("not_found") o dejó el registro por la mitad ("segment_denied" asumiendo que es incomplete, o podés agregar "incomplete" a los estados del hook), lo pateamos a /entrar
+    if (nodeStatus === "not_found") {
+      console.log("[BRUTAL] Usuario no registrado. Redirigiendo al onboarding...");
+      navigate("/entrar");
+    }
+  }, [nodeStatus, navigate]);
+
+
   // Node gate: block access for non-active nodes (inside Telegram only)
-  if (nodeStatus === "loading" || nodeStatus === "pending" || nodeStatus === "blocked" || nodeStatus === "not_found" || nodeStatus === "segment_denied" || nodeStatus === "completed") {
+  // IMPORTANTE: Sacamos "not_found" de esta lista porque ya lo atajamos arriba y lo redirigimos
+  if (nodeStatus === "loading" || nodeStatus === "pending" || nodeStatus === "blocked" || nodeStatus === "segment_denied" || nodeStatus === "completed") {
     return <NodeGateScreen status={nodeStatus} nickname={nickname} />;
+  }
+  
+  // Si nodeStatus es "not_found", mientras React hace el navigate, devolvemos null para no parpadear pantallas raras
+  if (nodeStatus === "not_found") {
+      return null;
   }
 
   // drop is always available (starts with fallback), no loading gate needed
