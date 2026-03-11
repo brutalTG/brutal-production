@@ -5,7 +5,7 @@
  * KEY CHANGE from v2: All endpoints return data in the format
  * the Figma Make frontend expects. No transformers needed.
  *
- * Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, TELEGRAM_BOT_TOKEN, PANEL_PASSWORD, PORT
+ * Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, TELEGRAM_BOT_TOKEN, PANEL_PASSWORD, POFRT
  */
 
 import { Hono } from "hono";
@@ -1381,6 +1381,66 @@ app.get("/admin/applications", requirePanel, async (c) => {
   return c.json({ applications, count: count || 0 });
 });
 
+app.put("/admin/users/:id/status", requirePanel, async (c) => {
+  const id = c.req.param("id");
+  const { status } = await c.req.json();
+
+  const validStatuses = ["active", "pending", "blocked", "incomplete"];
+  if (!validStatuses.includes(status)) {
+    return c.json({ error: "Invalid status" }, 400);
+  }
+
+  // 1. Actualizamos en la DB
+  const updateData: Record<string, unknown> = { status };
+  if (status === "active") updateData.approved_at = new Date().toISOString();
+
+  const { data: updatedNode, error } = await db()
+    .from("nodes")
+    .update(updateData)
+    .eq("node_id", id)
+    .select()
+    .single();
+
+  if (error) return c.json({ error: error.message }, 500);
+
+  // 2. Si se activa, mandamos el mensaje por Telegram
+  if (status === "active" && botToken()) {
+    const { data: channel } = await db()
+      .from("node_channels")
+      .select("channel_identifier")
+      .eq("node_id", id)
+      .eq("channel", "telegram")
+      .single();
+
+    if (channel?.channel_identifier) {
+      try {
+        await fetch(`https://api.telegram.org/bot${botToken()}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: channel.channel_identifier,
+            text: `✅ <b>¡Tu cuenta ya está activa!</b>\n\nYa estás adentro de BRUTAL. Quedate atento que te avisamos por acá cuando haya un Drop disponible para jugar y ganar cash.`,
+            parse_mode: "HTML",
+            reply_markup: {
+              inline_keyboard: [[
+                { text: "🔥 Entrar a BRUTAL", web_app: { url: `https://brutal-production-production-24da.up.railway.app/` } }
+              ]]
+            }
+          }),
+        });
+      } catch (e) {
+        console.error("[BOT] Falló el mensaje de activación:", e);
+      }
+    }
+  }
+
+  // 3. Devolvemos la data para que el panel se actualice visualmente
+  return c.json({ 
+    ok: true, 
+    application: { status: updatedNode.status } 
+  });
+});
+
 // ============================================================================
 // ADMIN — DROPS
 // ============================================================================
@@ -2068,18 +2128,62 @@ app.post("/bot/poll", requirePanel, async (c) => {
   }
 });
 
-app.post("/admin/users/bulk-status", requirePanel, async (c) => {
+app.put("/admin/users/bulk-status", requirePanel, async (c) => {
   const { ids, status } = await c.req.json();
-  if (!ids || !Array.isArray(ids) || !status) return c.json({ error: "ids (array) and status required" }, 400);
-  const validStatuses = ["active", "pending", "blocked"];
-  if (!validStatuses.includes(status)) return c.json({ error: `Invalid status. Must be: ${validStatuses.join(", ")}` }, 400);
+  
+  if (!ids || !Array.isArray(ids) || !status) {
+    return c.json({ error: "ids (array) and status required" }, 400);
+  }
+  
+  const validStatuses = ["active", "pending", "blocked", "incomplete"];
+  if (!validStatuses.includes(status)) {
+    return c.json({ error: `Invalid status. Must be: ${validStatuses.join(", ")}` }, 400);
+  }
+
   const update: Record<string, unknown> = { status };
   if (status === "active") update.approved_at = new Date().toISOString();
+  
   let updated = 0;
+  
   for (const id of ids) {
     const { error } = await db().from("nodes").update(update).eq("node_id", id);
-    if (!error) updated++;
+    
+    if (!error) {
+      updated++;
+      
+      // Si estamos activando, mandamos el mensaje
+      if (status === "active" && botToken()) {
+        const { data: channel } = await db()
+          .from("node_channels")
+          .select("channel_identifier")
+          .eq("node_id", id)
+          .eq("channel", "telegram")
+          .single();
+
+        if (channel?.channel_identifier) {
+          try {
+            await fetch(`https://api.telegram.org/bot${botToken()}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: channel.channel_identifier,
+                text: `✅ <b>¡Tu cuenta ya está activa!</b>\n\nYa estás adentro de BRUTAL. Quedate atento que te avisamos por acá cuando haya un Drop disponible para jugar y ganar cash.`,
+                parse_mode: "HTML",
+                reply_markup: {
+                  inline_keyboard: [[
+                    { text: "🔥 Entrar a BRUTAL", web_app: { url: `https://brutal-production-production-24da.up.railway.app/` } }
+                  ]]
+                }
+              }),
+            });
+          } catch (e) {
+            console.error(`[BOT] Falló mensaje masivo a nodo ${id}:`, e);
+          }
+        }
+      }
+    }
   }
+  
   return c.json({ ok: true, updated, total: ids.length });
 });
 
