@@ -933,10 +933,15 @@ app.post("/apply/init", async (c) => {
   
   let normalPhone = null;
   if (phone !== "telegram_verified") {
-    const clean = phone.replace(/\D/g, "");
-    // FIX: Validación estricta para celulares de Argentina (+54 y 12 o 13 dígitos)
+    let clean = String(phone).replace(/\D/g, "");
+    
+    // MAGIA: Auto-completar formato Argentina para no frustrar al usuario
+    if (clean.length === 10) clean = "549" + clean; // Ej: 1122334455 -> 5491122334455
+    else if (clean.length === 11 && clean.startsWith("9")) clean = "54" + clean; // Ej: 91122334455 -> 5491122334455
+    else if (clean.length === 12 && clean.startsWith("54")) clean = "549" + clean.substring(2); // Le faltó el 9
+    
     if (!clean.startsWith("54") || clean.length < 12 || clean.length > 13) {
-      return c.json({ ok: false, error: "Teléfono inválido. Debe incluir +54 y código de área." }, 400);
+      return c.json({ ok: false, error: "Teléfono inválido. Verificá el código de área." }, 400);
     }
     normalPhone = "+" + clean;
   }
@@ -946,7 +951,6 @@ app.post("/apply/init", async (c) => {
      const { data: ch } = await db().from("node_channels")
        .select("node_id").eq("channel", "telegram").eq("channel_identifier", String(telegram_user_id)).single();
      if (ch) {
-       // FIX: Sumamos "phone" al select para ver si el nodo lo tiene vacío
        const { data: node } = await db().from("nodes").select("node_id, status, onboarding_step, referral_code, phone").eq("node_id", ch.node_id).single();
        existing = node;
      }
@@ -960,7 +964,6 @@ app.post("/apply/init", async (c) => {
   if (existing) {
     const updates: any = { ...tgFields };
     
-    // FIX: Si el usuario ya existía pero no tenía teléfono guardado, lo guardamos ahora
     if (normalPhone && !existing.phone) {
       updates.phone = normalPhone;
     }
@@ -1018,17 +1021,21 @@ app.put("/apply/:nodeId/step", async (c) => {
     .select("node_id, status, onboarding_data").eq("node_id", nodeId).single();
   if (!node) return c.json({ ok: false, error: "Node not found" }, 404);
 
-  // FIX: Agregamos "phone" a los coreFields para que lo guarde en la columna correcta
   const coreFields = ["phone", "nickname", "age", "gender", "location_province", "location_city", "phone_brand"];
   
   if (coreFields.includes(step)) {
     let finalValue = value;
     
-    // FIX: Validación estricta también si mandan el paso por separado
     if (step === "phone") {
-      const clean = String(value).replace(/\D/g, "");
+      let clean = String(value).replace(/\D/g, "");
+      
+      // La misma magia auto-formateadora acá por si entra por este endpoint
+      if (clean.length === 10) clean = "549" + clean;
+      else if (clean.length === 11 && clean.startsWith("9")) clean = "54" + clean;
+      else if (clean.length === 12 && clean.startsWith("54")) clean = "549" + clean.substring(2);
+
       if (!clean.startsWith("54") || clean.length < 12 || clean.length > 13) {
-         return c.json({ ok: false, error: "Formato inválido. Usá el formato +54 9..." }, 400);
+         return c.json({ ok: false, error: "Teléfono inválido. Verificá el código de área." }, 400);
       }
       finalValue = "+" + clean;
     }
@@ -1048,93 +1055,6 @@ app.put("/apply/:nodeId/step", async (c) => {
   await db().from("nodes").update({ onboarding_step: newStep }).eq("node_id", nodeId);
 
   return c.json({ ok: true, step, saved: true });
-});
-
-app.post("/apply/:nodeId/compass-rafaga", async (c) => {
-  const nodeId = c.req.param("nodeId");
-  const body = await c.req.json();
-  const { rafaga_index, choices } = body;
-  if (rafaga_index === undefined || !choices?.length) return c.json({ ok: false, error: "rafaga_index and choices required" }, 400);
-  const { data: node } = await db().from("nodes").select("node_id").eq("node_id", nodeId).single();
-  if (!node) return c.json({ ok: false, error: "Node not found" }, 404);
-  await db().from("node_compass_choices").delete().eq("node_id", nodeId).eq("rafaga_index", rafaga_index);
-  const rows = choices.map((ch: any) => ({
-    node_id: nodeId, rafaga_index, pair_index: ch.pair_index,
-    emoji_left: ch.emoji_left, emoji_right: ch.emoji_right, chosen: ch.chosen, latency_ms: ch.latency_ms || null,
-  }));
-  const { error } = await db().from("node_compass_choices").insert(rows);
-  if (error) return c.json({ ok: false, error: error.message }, 500);
-  await db().from("nodes").update({ onboarding_step: 20 + rafaga_index }).eq("node_id", nodeId);
-  return c.json({ ok: true, rafaga_index, saved: choices.length });
-});
-
-app.post("/apply/:nodeId/brand-rafaga", async (c) => {
-  const nodeId = c.req.param("nodeId");
-  const body = await c.req.json();
-  const { choices } = body;
-  if (!choices?.length) return c.json({ ok: false, error: "choices required" }, 400);
-  const { data: node } = await db().from("nodes").select("node_id").eq("node_id", nodeId).single();
-  if (!node) return c.json({ ok: false, error: "Node not found" }, 404);
-  await db().from("node_brand_choices").delete().eq("node_id", nodeId);
-  const rows = choices.map((ch: any) => ({
-    node_id: nodeId, pair_id: ch.pair_id, brand_a: ch.brand_a, brand_b: ch.brand_b,
-    chosen: ch.chosen, latency_ms: ch.latency_ms || null,
-  }));
-  const { error } = await db().from("node_brand_choices").insert(rows);
-  if (error) return c.json({ ok: false, error: error.message }, 500);
-  await db().from("nodes").update({ onboarding_step: 25 }).eq("node_id", nodeId);
-  return c.json({ ok: true, saved: choices.length });
-});
-
-app.put("/apply/:nodeId/complete", async (c) => {
-  const nodeId = c.req.param("nodeId");
-  const body = await c.req.json();
-  const { compass_vector, compass_archetype, handles, brand_vector } = body;
-  const { data: node } = await db().from("nodes").select("node_id, status, phone").eq("node_id", nodeId).single();
-  if (!node) return c.json({ ok: false, error: "Node not found" }, 404);
-  const { error } = await db().from("nodes").update({
-    compass_vector: compass_vector || null, compass_archetype: compass_archetype || null,
-    brand_vector: brand_vector || null, handles: handles || null, onboarding_step: 99, status: "pending",
-  }).eq("node_id", nodeId);
-  if (error) return c.json({ ok: false, error: error.message }, 500);
-  
-  const { data: updated } = await db().from("nodes").select("referral_code").eq("node_id", nodeId).single();
-  const { data: channel } = await db().from("node_channels").select("channel_identifier").eq("node_id", nodeId).eq("channel", "telegram").single();
-
-  if (channel?.channel_identifier && botToken()) {
-    const { count } = await db().from("nodes").select("*", { count: "exact", head: true }).in("status", ["pending", "active"]);
-    
-    // MAGIA: Calculamos la posición acá también
-    const queuePosition = (count || 1) + 642;
-    
-    try {
-      await fetch(`https://api.telegram.org/bot${botToken()}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: channel.channel_identifier,
-          text: `✅ <b>Registro completo</b>\n\nTu posición en la fila: <b>#${queuePosition}</b>\n\nActivá las notificaciones 🔔 que te vamos a avisar por acá cuando estés dentro y tengas un Drop activo para jugar.\n\nTu link de invitación: <b>t.me/BrutalDropBot?start=${updated?.referral_code || ""}</b>\nCompartilo con amigos para subir en la fila.`,
-          parse_mode: "HTML",
-        }),
-      });
-    } catch (e) {
-      console.error("[BOT] Post-registration message failed:", e);
-    }
-  }
-
-  return c.json({ ok: true, nodeId, referralCode: updated?.referral_code || null, status: "pending" });
-});
-
-app.post("/link-channel", async (c) => {
-  const { code, channel, channel_identifier } = await c.req.json();
-  if (!code || !channel || !channel_identifier) return c.json({ error: "Missing fields" }, 400);
-  const { data: node } = await db().from("nodes").select("node_id").eq("referral_code", code).single();
-  if (!node) return c.json({ error: "Invalid code", linked: false });
-  const { data: existing } = await db().from("node_channels").select("id")
-    .eq("channel", channel).eq("channel_identifier", channel_identifier).single();
-  if (existing) return c.json({ error: "Already linked", linked: false });
-  await db().from("node_channels").insert({ node_id: node.node_id, channel, channel_identifier, is_primary: false });
-  return c.json({ node_id: node.node_id, linked: true });
 });
 
 // ============================================================================
