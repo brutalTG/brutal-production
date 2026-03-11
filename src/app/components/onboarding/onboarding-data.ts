@@ -11,7 +11,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
     id: "intro",
     type: "intro",
     phase: "intro",
-    title: "Aplica al Club",
+    title: "Entrá a Brutal",
     subtitle:
       "Esto no es un registro. Es una aplicacion.\nCuanto mas completo tu perfil, mas rapido entras y mejores Drops recibis.",
   },
