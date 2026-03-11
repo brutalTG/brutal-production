@@ -927,7 +927,9 @@ app.post("/apply/init", async (c) => {
   const body = await c.req.json();
   const initData = c.req.header("X-Telegram-Init-Data");
   const tgFields = extractTgFields(initData);
-  const { phone, telegram_user_id, referred_by_code } = body;
+  
+  // Extraemos TODO lo que manda el checkpoint silencioso
+  const { phone, telegram_user_id, referred_by_code, nickname, age, gender, location, phoneBrand } = body;
   
   if (!phone) return c.json({ ok: false, error: "Phone required" }, 400);
   
@@ -964,17 +966,30 @@ app.post("/apply/init", async (c) => {
   if (existing) {
     const updates: any = { ...tgFields };
     
-    if (normalPhone && !existing.phone) {
-      updates.phone = normalPhone;
+    // Si entró por el checkpoint, le actualizamos todo lo que mandó
+    if (normalPhone && !existing.phone) updates.phone = normalPhone;
+    if (nickname) updates.nickname = nickname;
+    if (age) updates.age = age;
+    if (gender) updates.gender = gender;
+    if (location) updates.location_province = location;
+    if (phoneBrand) updates.phone_brand = phoneBrand;
+
+    // MAGIA: Si nos mandó nickname, es el checkpoint antes de las ráfagas.
+    // Marcamos el step en 10.
+    if (nickname) {
+      updates.onboarding_step = 10;
     }
 
     if (Object.keys(updates).length > 0) {
       await db().from("nodes").update(updates).eq("node_id", existing.node_id);
     }
+    
+    // Retornamos el paso actualizado para que el frontend lo sepa
     return c.json({
       ok: true, resumed: true,
       nodeId: existing.node_id, referralCode: existing.referral_code,
-      onboardingStep: existing.onboarding_step, status: existing.status,
+      onboardingStep: updates.onboarding_step || existing.onboarding_step, 
+      status: existing.status,
     });
   }
 
