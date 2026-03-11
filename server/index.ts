@@ -1812,13 +1812,44 @@ app.post("/bot/webhook", async (c) => {
     }
     
     // Active user — welcome back
+    // 1. Buscamos si hay un Drop activo
+    const { data: activeDrop } = await db()
+      .from("drops")
+      .select("drop_id, name")
+      .eq("status", "active")
+      .limit(1)
+      .single();
+    
+    let text = `⚡ <b>BRUTAL</b>\n\nBienvenido de vuelta, ${displayName}.\n\nUsá /drop para jugar, /perfil para ver tu balance, /leaderboard para el ranking.`;
+    let keyboard: any[] = [];
+
+    if (activeDrop) {
+      // 2. Si hay drop, nos fijamos si ya lo jugó
+      const { data: done } = await db()
+        .from("sessions")
+        .select("session_id")
+        .eq("node_id", node.node_id)
+        .eq("drop_id", activeDrop.drop_id)
+        .eq("status", "completed")
+        .single();
+        
+      if (done) {
+        text += `\n\n✅ Ya jugaste <b>${activeDrop.name}</b>. Quedate atento a nuevas preguntas para sumar tickets 🎟️.`;
+        keyboard = [[ { text: "📊 Ver mi Perfil", web_app: { url: `https://brutal.up.railway.app/?screen=profile` } } ]];
+      } else {
+        text += `\n\n🎯 <b>${activeDrop.name}</b> está activo. ¡Entrá a jugar!`;
+        keyboard = [[ { text: "▶️ Jugar Drop", web_app: { url: `https://brutal.up.railway.app/` } } ]];
+      }
+    } else {
+       text += `\n\n😴 No hay ningún Drop activo en este momento.`;
+       keyboard = [[ { text: "📊 Ver mi Perfil", web_app: { url: `https://brutal.up.railway.app/?screen=profile` } } ]];
+    }
+
     await tgSend("sendMessage", {
       chat_id: chatId,
-      text: `⚡ <b>BRUTAL</b>\n\nBienvenido de vuelta, ${displayName}.\n\nUsá /drop para jugar, /perfil para ver tu balance, /leaderboard para el ranking.`,
+      text,
       parse_mode: "HTML",
-      reply_markup: { inline_keyboard: [[
-        { text: "▶️ Jugar Drop", web_app: { url: `https://brutal.up.railway.app` } }
-      ]] }
+      reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined
     });
     return c.json({ ok: true });
   }
