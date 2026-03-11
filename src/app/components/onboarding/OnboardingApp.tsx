@@ -150,8 +150,8 @@ export default function OnboardingApp() {
           const initData = (window as any).Telegram?.WebApp?.initData || "";
           const tgUserId = getTelegramUserId();
           
-          // Llamado silencioso al endpoint /apply (que ya sabe cómo actualizar nodos existentes)
-          await fetch("/apply", {
+          // Apuntamos a /apply/init para NO disparar la finalización del embudo
+          await fetch("/apply/init", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -186,6 +186,15 @@ export default function OnboardingApp() {
   const isQuestionStep = currentQuestionIndex >= 0;
 
   const advance = useCallback((id: string, value: any) => {
+    // NUEVO: Validación estricta en el frontend para el teléfono
+    if (id === "phone") {
+      const clean = String(value).replace(/\D/g, "");
+      if (clean.length < 10) {
+        alert("Por favor ingresá un número de celular válido con código de área (ej: 11 2345 6789).");
+        return; // ¡Cortamos acá y no lo dejamos avanzar!
+      }
+    }
+
     firstStepDone.current = true;
     setAnswers((prev) => ({ ...prev, [id]: value }));
     hapticMedium();
