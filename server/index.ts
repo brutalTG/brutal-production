@@ -935,10 +935,13 @@ app.post("/apply/init", async (c) => {
   const tgId = secureTgId || body.telegram_user_id || body.telegramUserId;
   const { phone, referred_by_code, nickname, age, gender, location, phoneBrand } = body;
   
-  if (!phone) return c.json({ ok: false, error: "Phone required" }, 400);
-  
+  // EL SEGURO ANTIBALAS: Si no hay ID de Telegram Y tampoco hay un número manual real, bloqueamos la creación
+  if (!tgId && (!phone || phone === "telegram_verified")) {
+    return c.json({ ok: false, error: "Missing Telegram ID or valid Phone" }, 400);
+  }
+
   let normalPhone = null;
-  if (phone !== "telegram_verified") {
+  if (phone && phone !== "telegram_verified") {
     let clean = String(phone).replace(/\D/g, "");
     
     if (clean.length === 10) clean = "549" + clean; 
@@ -1155,7 +1158,6 @@ app.put("/apply/:nodeId/complete", async (c) => {
 
   return c.json({ ok: true, nodeId, referralCode: updated?.referral_code || null, status: "pending" });
 });
-
 // ============================================================================
 // USER PROFILE and REWARDS
 // ============================================================================
