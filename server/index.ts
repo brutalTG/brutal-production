@@ -2107,6 +2107,75 @@ app.get("/node-status", requireTelegram, async (c) => {
 });
 
 // ============================================================================
+// RESCUE BOT (Auto-recuperación de Onboarding)
+// ============================================================================
+
+// Este proceso corre silenciosamente en el servidor cada 15 minutos
+setInterval(async () => {
+  try {
+    const botT = botToken();
+    if (!botT) return;
+
+    // 1. Buscamos a todos los usuarios que siguen "incomplete"
+    const { data: nodes } = await db()
+      .from("nodes")
+      .select("node_id, nickname, created_at, onboarding_data")
+      .eq("status", "incomplete");
+
+    if (!nodes || nodes.length === 0) return;
+
+    const now = new Date().getTime();
+    
+    for (const node of nodes) {
+      const nodeTime = new Date(node.created_at).getTime();
+      
+      // 2. Si pasaron menos de 30 minutos desde que arrancó, le damos tiempo. No lo molestamos.
+      if (now - nodeTime < 30 * 60 * 1000) continue; 
+
+      // 3. Revisamos si ya le mandamos el recordatorio antes
+      const data = node.onboarding_data || {};
+      if (data.reminded) continue;
+
+      // 4. Buscamos su chat de Telegram
+      const { data: channel } = await db()
+        .from("node_channels")
+        .select("channel_identifier")
+        .eq("node_id", node.node_id)
+        .eq("channel", "telegram")
+        .limit(1);
+
+      if (channel?.[0]?.channel_identifier) {
+        const displayName = node.nickname || "ahí";
+        
+        // 5. Mandamos el mensaje proactivo
+        await fetch(`https://api.telegram.org/bot${botT}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: channel[0].channel_identifier,
+            text: `👀 ¡Ey${displayName !== "ahí" ? ` ${displayName}` : ""}! Te quedaste a mitad de camino.\n\nCompletá tus datos y las ráfagas para asegurar tu lugar en la fila. ¡No te quedes afuera!`,
+            parse_mode: "HTML",
+            reply_markup: {
+              inline_keyboard: [[
+                { text: "📝 Terminar de registrarme", web_app: { url: `https://brutal.up.railway.app/entrar` } }
+              ]]
+            }
+          }),
+        });
+
+        // 6. Lo marcamos silenciosamente como "avisado" para no spamearlo a los 15 minutos
+        data.reminded = true;
+        await db().from("nodes").update({ onboarding_data: data }).eq("node_id", node.node_id);
+        
+        console.log(`[RESCUE BOT] Recordatorio de abandono enviado a ${node.node_id}`);
+      }
+    }
+  } catch (err) {
+    console.error("[RESCUE BOT] Error en el worker:", err);
+  }
+}, 15 * 60 * 1000); // Se ejecuta cada 15 minutos (900,000 ms)
+
+// ============================================================================
 // STATIC FILES
 // ============================================================================
 
