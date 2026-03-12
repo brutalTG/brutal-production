@@ -349,52 +349,87 @@ export function NestedChoiceStepView({ step, onNext }: { step: NestedChoiceStep;
   );
 }
 
-// ── MULTI SELECT ────────────────────────────────────────────
+// ── MULTI SELECT INPUT (Estilo Lista Vertical con Validación) ───────────────
 
-export function MultiSelectStepView({ step, onNext }: { step: MultiSelectStep; onNext: (val: string[]) => void }) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const limit = step.exactCount || step.maxSelect || step.options.length;
-  const minRequired = step.exactCount || step.minSelect || 1;
-  const isValid = step.exactCount ? selected.size === step.exactCount : selected.size >= minRequired;
+export function MultiSelectStepView({ step, onNext }: { step: any; onNext: (val: string[]) => void }) {
+  const [selected, setSelected] = useState<string[]>([]);
 
-  const toggle = (opt: string) => {
+  const toggle = (optId: string) => {
     setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(opt)) {
-        next.delete(opt);
-      } else if (next.size < limit) {
-        next.add(opt);
-      }
-      return next;
+      if (prev.includes(optId)) return prev.filter((x) => x !== optId);
+      if (step.maxSelections && prev.length >= step.maxSelections) return prev;
+      return [...prev, optId];
     });
   };
 
-  const counterLabel = step.exactCount
-    ? `${selected.size}/${step.exactCount}`
-    : step.maxSelect
-    ? `${selected.size}/${step.maxSelect} max`
-    : `${selected.size} seleccionados`;
+  const isValid = selected.length > 0;
 
   return (
     <div className="flex flex-col flex-1">
       <DuotoneCard>
-        <CardTitle size="md">{step.copy}</CardTitle>
-        <p className="text-[12px] font-['Fira_Code'] mb-3 opacity-60" style={{ color: "var(--dynamic-bg, #000)" }}>
-          {counterLabel}
-        </p>
-        <div className="w-full flex flex-wrap gap-[6px] justify-center">
-          {step.options.map((opt) => (
-            <ChipButton key={opt} selected={selected.has(opt)} onClick={() => toggle(opt)}>
-              {opt}
-            </ChipButton>
-          ))}
+        <CardTitle size="md">{step.copy || step.prompt}</CardTitle>
+        
+        {step.maxSelections && (
+          <p 
+            className="text-center font-['Fira_Code'] text-[12px] opacity-60 mt-1 mb-4" 
+            style={{ color: "var(--dynamic-bg, #000)" }}
+          >
+            {selected.length}/{step.maxSelections} max
+          </p>
+        )}
+
+        <div className="flex flex-col gap-3 w-full">
+          {step.options.map((opt: any) => {
+            const isSel = selected.includes(opt.id || opt);
+            const label = opt.label || opt;
+            const val = opt.id || opt;
+            const isMaxedOut = !isSel && step.maxSelections && selected.length >= step.maxSelections;
+
+            return (
+              <button
+                key={val}
+                onClick={() => toggle(val)}
+                disabled={isMaxedOut}
+                className="w-full text-left px-5 py-4 rounded-xl font-['Roboto'] font-bold text-[16px] transition-all flex justify-between items-center"
+                style={{
+                  border: "2px solid var(--dynamic-bg, #000)",
+                  backgroundColor: isSel ? "var(--dynamic-bg, #000)" : "transparent",
+                  color: isSel ? "var(--dynamic-fg, #fff)" : "var(--dynamic-bg, #000)",
+                  opacity: isMaxedOut ? 0.2 : (isSel ? 1 : 0.6),
+                }}
+              >
+                <span>{label}</span>
+                
+                {/* Icono de Checkmark */}
+                {isSel && (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                )}
+              </button>
+            );
+          })}
         </div>
-        <ActionButton label="Siguiente" disabled={!isValid} onClick={() => onNext(Array.from(selected))} />
+
+        <div className="w-full mt-8">
+          <button
+            onClick={() => isValid && onNext(selected)}
+            disabled={!isValid}
+            className={`w-full h-[60px] rounded-[12px] font-['Roboto'] font-bold text-[18px] transition-all shadow-lg ${
+              isValid ? "active:scale-95" : "opacity-20 cursor-not-allowed"
+            }`}
+            style={{
+              backgroundColor: "var(--dynamic-bg, #000)",
+              color: "var(--dynamic-fg, #fff)"
+            }}
+          >
+            Siguiente
+          </button>
+        </div>
       </DuotoneCard>
     </div>
   );
 }
-
 // ── SCALE ───────────────────────────────────────────────────
 
 export function ScaleStepView({ step, onNext }: { step: ScaleStep; onNext: (val: number) => void }) {
@@ -647,55 +682,58 @@ export function MultiplierHandlesStepView({
 
 export function ClosingStepView() {
   const handlePlay = () => {
-    // En lugar de cerrar la app, lo mandamos directo a la raíz (el juego)
+    // Lo mandamos directo a la raíz (el juego)
     window.location.href = "/";
   };
 
   return (
     <div className="flex flex-col flex-1 justify-center items-center px-6 py-6">
-      {/* Title */}
-      <h1
-        className="font-[var(--skin-font-display)] text-[34px] uppercase text-center mb-6"
-        style={{ color: "var(--dynamic-fg, #fff)" }}
-      >
-        ¡Estás Adentro!
-      </h1>
-
-      {/* Description */}
-      <div className="w-full max-w-[332px] mb-12 text-center">
-        <p
-          className="font-['Roboto'] text-[18px] leading-[24px] mb-4 font-bold"
+      <div className="flex flex-col items-center justify-center w-full max-w-[332px]">
+        
+        {/* Title con fuente Silkscreen */}
+        <h1
+          className="font-['Silkscreen'] text-[34px] uppercase text-center mb-6 leading-tight"
           style={{ color: "var(--dynamic-fg, #fff)" }}
         >
-          Tu perfil fue aprobado automáticamente.
-        </p>
-        <p
-          className="font-['Roboto'] text-[16px] leading-[22px]"
-          style={{ color: "var(--dynamic-fg, #fff)", opacity: 0.8 }}
-        >
-          Ya tenés tu primer Drop esperándote para ganar cash y tickets.
-        </p>
-      </div>
+          ¡Estás Adentro!
+        </h1>
 
-      {/* Buttons */}
-      <div className="w-full max-w-[332px] mt-auto flex flex-col gap-3 mb-4">
-        <button
-          onClick={handlePlay}
-          className="w-full h-[64px] rounded-[12px] flex items-center justify-center active:scale-[0.98] transition-transform shadow-lg"
-          style={{ backgroundColor: "var(--dynamic-fg, #fff)" }}
-        >
-          <span
-            className="font-['Roboto'] font-bold text-[21px]"
-            style={{ color: "var(--dynamic-bg, #000)" }}
+        {/* Description */}
+        <div className="text-center mb-10">
+          <p
+            className="font-['Roboto'] text-[18px] leading-[24px] mb-4 font-bold"
+            style={{ color: "var(--dynamic-fg, #fff)" }}
           >
-            Jugar Drop
-          </span>
-        </button>
+            Tu perfil fue aprobado automáticamente.
+          </p>
+          <p
+            className="font-['Roboto'] text-[16px] leading-[22px]"
+            style={{ color: "var(--dynamic-fg, #fff)", opacity: 0.8 }}
+          >
+            Ya tenés tu primer Drop esperándote para ganar cash y tickets.
+          </p>
+        </div>
+
+        {/* Botón (sin mt-auto para que flote en el centro con el texto) */}
+        <div className="w-full flex flex-col gap-3">
+          <button
+            onClick={handlePlay}
+            className="w-full h-[64px] rounded-[12px] flex items-center justify-center active:scale-[0.98] transition-transform shadow-lg"
+            style={{ backgroundColor: "var(--dynamic-fg, #fff)" }}
+          >
+            <span
+              className="font-['Roboto'] font-bold text-[21px]"
+              style={{ color: "var(--dynamic-bg, #000)" }}
+            >
+              Jugar Drop
+            </span>
+          </button>
+        </div>
+
       </div>
     </div>
   );
 }
-
 // ── AGE REJECT SCREEN ───────────────────────────────────────
 
 export function AgeRejectScreen({ message }: { message: string }) {
