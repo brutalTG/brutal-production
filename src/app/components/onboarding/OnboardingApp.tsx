@@ -81,6 +81,47 @@ export default function OnboardingApp() {
   const [duotoneColors, setDuotoneColors] = useState({ bg: "#000000", fg: "#FFFFFF" });
   const firstStepDone = useRef(false);
 
+  // --- LÓGICA DE REANUDACIÓN ---
+  const [isInitializing, setIsInitializing] = useState(true);
+
+  useEffect(() => {
+    async function checkExistingProgress() {
+      try {
+        const initData = (window as any).Telegram?.WebApp?.initData || "";
+        const tgUserId = getTelegramUserId();
+        
+        // Consultamos al backend en qué estado está el usuario
+        const res = await fetch("/apply/init", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(initData ? { "X-Telegram-Init-Data": initData } : {})
+          },
+          body: JSON.stringify({ telegramUserId: tgUserId, phone: "telegram_verified" }) 
+        });
+        
+        const data = await res.json();
+        
+        if (data.ok && data.resumed && data.onboardingStep >= 10) {
+          // Buscamos cuál es el índice de la primera ráfaga (fase compass)
+          const rafagaStartIndex = ONBOARDING_STEPS.findIndex(step => step.phase === "compass");
+          
+          if (rafagaStartIndex !== -1) {
+            console.log(`[BRUTAL] 🔄 Usuario reanudado. Saltando al paso ${rafagaStartIndex} (Ráfagas)`);
+            setStepIndex(rafagaStartIndex);
+            checkpointSaved.current = true; // No queremos que dispare el checkpoint de nuevo
+          }
+        }
+      } catch (err) {
+        console.error("[BRUTAL] Error al chequear progreso:", err);
+      } finally {
+        setIsInitializing(false);
+      }
+    }
+
+    checkExistingProgress();
+  }, []);
+
   // Compass rafagas — fetched from server, fallback to defaults
   const [rafagas, setRafagas] = useState<CompassRafaga[]>(DEFAULT_RAFAGAS);
 
@@ -241,7 +282,7 @@ export default function OnboardingApp() {
 
   // Submit application when reaching closing step
   useEffect(() => {
-    if (currentStep.type === "closing" && !submitResult && !submitting) {
+    if (currentStep && currentStep.type === "closing" && !submitResult && !submitting) {
       setSubmitting(true);
       const doSubmit = async () => {
         try {
@@ -318,7 +359,18 @@ export default function OnboardingApp() {
     }
   }, [currentStep, submitResult, submitting, answers, positionBoost, compassResult, compassAnswers]);
 
-  // ── Age reject ────────────────────────────────────────────
+  // ── Pantallas protectoras y de carga ────────────────────────────────────────────
+  
+  // Mostrar pantalla de carga mientras verificamos si hay que reanudar
+  if (isInitializing) {
+    return (
+      <div className="h-dvh flex flex-col justify-center items-center font-['Roboto'] bg-black text-white">
+        <div className="w-8 h-8 border-2 border-[#333] border-t-white rounded-full animate-spin mb-4" />
+        <p className="font-['Fira_Code'] text-[12px] opacity-60">Cargando tu perfil...</p>
+      </div>
+    );
+  }
+
   if (ageRejected) {
     return (
       <div
