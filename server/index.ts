@@ -118,11 +118,11 @@ async function resolveNode(telegramUserId: string | number) {
   if (!ch) return null;
   const { data: node } = await db()
     .from("nodes")
-    .select("node_id, status, nickname") // <-- ACÁ AGREGAMOS NICKNAME
+    .select("node_id, status, nickname") 
     .eq("node_id", ch.node_id)
     .single();
   if (!node) return null;
-  return { node_id: node.node_id, status: node.status, nickname: node.nickname }; // <-- ACÁ LO DEVOLVEMOS
+  return { node_id: node.node_id, status: node.status, nickname: node.nickname };
 }
 
 async function anonId(nodeId: string) {
@@ -486,7 +486,6 @@ app.post("/sessions/start", requireTelegram, async (c) => {
   const { drop_id } = await c.req.json();
   if (!drop_id) return c.json({ error: "drop_id required" }, 400);
 
-  // Capture TG fields from initData on session start
   const initData = c.req.header("X-Telegram-Init-Data");
   const tgFields = extractTgFields(initData);
 
@@ -928,7 +927,6 @@ app.post("/apply/init", async (c) => {
   const initData = c.req.header("X-Telegram-Init-Data");
   const tgFields = extractTgFields(initData);
   
-  // MAGIA ANTI-DUPLICADOS: Extraemos el ID directamente del token de seguridad de Telegram
   let secureTgId = null;
   if (initData) {
     try {
@@ -938,7 +936,6 @@ app.post("/apply/init", async (c) => {
     } catch(e) {}
   }
   
-  // Usamos el ID seguro, o el que mandó el frontend por si acaso
   const tgId = secureTgId || body.telegram_user_id || body.telegramUserId;
   const { phone, referred_by_code, nickname, age, gender, location, phoneBrand } = body;
   
@@ -973,7 +970,6 @@ app.post("/apply/init", async (c) => {
     existing = nodeByPhone;
   }
 
-  // SI ENCUENTRA AL USUARIO (Actualiza y salva el Checkpoint)
   if (existing) {
     const updates: any = { ...tgFields };
     
@@ -984,7 +980,6 @@ app.post("/apply/init", async (c) => {
     if (location) updates.location_province = location;
     if (phoneBrand) updates.phone_brand = phoneBrand;
 
-    // Si mandó el nickname en el checkpoint, lo marcamos en paso 10 para reanudar luego
     if (nickname) {
       updates.onboarding_step = 10;
     }
@@ -1000,7 +995,6 @@ app.post("/apply/init", async (c) => {
     });
   }
 
-  // SI DE VERDAD ES NUEVO (Crea registro)
   let referredBy = null;
   if (referred_by_code) {
     const { data: ref } = await db().from("nodes").select("node_id").eq("referral_code", referred_by_code).single();
@@ -1125,7 +1119,43 @@ app.post("/apply/:nodeId/brand-rafaga", async (c) => {
 });
 
 app.put("/apply/:nodeId/complete", async (c) => {
-  const nodeId = c.req
+  const nodeId = c.req.param("nodeId");
+  const body = await c.req.json();
+  const { compass_vector, compass_archetype, handles, brand_vector } = body;
+  const { data: node } = await db().from("nodes").select("node_id, status, phone").eq("node_id", nodeId).single();
+  if (!node) return c.json({ ok: false, error: "Node not found" }, 404);
+  const { error } = await db().from("nodes").update({
+    compass_vector: compass_vector || null, compass_archetype: compass_archetype || null,
+    brand_vector: brand_vector || null, handles: handles || null, onboarding_step: 99, status: "pending",
+  }).eq("node_id", nodeId);
+  if (error) return c.json({ ok: false, error: error.message }, 500);
+  
+  const { data: updated } = await db().from("nodes").select("referral_code").eq("node_id", nodeId).single();
+  const { data: channel } = await db().from("node_channels").select("channel_identifier").eq("node_id", nodeId).eq("channel", "telegram").single();
+
+  if (channel?.channel_identifier && botToken()) {
+    const { count } = await db().from("nodes").select("*", { count: "exact", head: true }).in("status", ["pending", "active"]);
+    
+    const queuePosition = (count || 1) + 642;
+    
+    try {
+      await fetch(`https://api.telegram.org/bot${botToken()}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: channel.channel_identifier,
+          text: `✅ <b>Registro completo</b>\n\nTu posición en la fila: <b>#${queuePosition}</b>\n\nActivá las notificaciones 🔔 que te vamos a avisar por acá cuando estés dentro y tengas un Drop activo para jugar.\n\nTu link de invitación: <b>t.me/BrutalDropBot?start=${updated?.referral_code || ""}</b>\nCompartilo con amigos para subir en la fila.`,
+          parse_mode: "HTML",
+        }),
+      });
+    } catch (e) {
+      console.error("[BOT] Post-registration message failed:", e);
+    }
+  }
+
+  return c.json({ ok: true, nodeId, referralCode: updated?.referral_code || null, status: "pending" });
+});
+
 // ============================================================================
 // USER PROFILE and REWARDS
 // ============================================================================
@@ -1338,11 +1368,6 @@ app.put("/claims/:id", requirePanel, async (c) => {
 // ADMIN — NODES
 // ============================================================================
 
-// ============================================================================
-// REPLACEMENT: /admin/applications endpoint
-// Copy this over the existing app.get("/admin/applications", ...) block
-// ============================================================================
-
 app.get("/admin/applications", requirePanel, async (c) => {
   const limit = parseInt(c.req.query("limit") || "100");
   const offset = parseInt(c.req.query("offset") || "0");
@@ -1372,19 +1397,15 @@ app.get("/admin/applications", requirePanel, async (c) => {
       status: n.status,
       referralCode: n.referral_code,
       createdAt: n.created_at,
-      // Compass
       compassArchetype: n.compass_archetype,
       compassXPole: n.compass_x_pole,
       compassYPole: n.compass_y_pole,
       compassZPole: n.compass_z_pole,
-      // Onboarding data (from JSONB)
       platforms: od.platforms || [],
       aiTool: od.ai_tool || "",
-      // Profile stats
       totalCoins: p.cash_balance || 0,
       seasonTickets: p.tickets_current || 0,
       dropsCompleted: p.drops_completed || 0,
-      // Handles
       handles: n.handles || {},
     };
   });
@@ -1401,7 +1422,6 @@ app.put("/admin/users/:id/status", requirePanel, async (c) => {
     return c.json({ error: "Invalid status" }, 400);
   }
 
-  // 1. Actualizamos en la DB
   const updateData: Record<string, unknown> = { status };
   if (status === "active") updateData.approved_at = new Date().toISOString();
 
@@ -1414,7 +1434,6 @@ app.put("/admin/users/:id/status", requirePanel, async (c) => {
 
   if (error) return c.json({ error: error.message }, 500);
 
-  // 2. Si se activa, mandamos el mensaje por Telegram
   if (status === "active" && botToken()) {
     const { data: channel } = await db()
       .from("node_channels")
@@ -1445,7 +1464,6 @@ app.put("/admin/users/:id/status", requirePanel, async (c) => {
     }
   }
 
-  // 3. Devolvemos la data para que el panel se actualice visualmente
   return c.json({ 
     ok: true, 
     application: { status: updatedNode.status } 
@@ -1570,7 +1588,6 @@ app.delete("/admin/questions/:id", requirePanel, async (c) => {
   return c.json({ ok: true });
 });
 
-// Drop-question linking
 app.get("/admin/drop-questions/:dropId", requirePanel, async (c) => {
   const { data } = await db().from("drop_questions").select("*, questions(*)")
     .eq("drop_id", c.req.param("dropId")).order("position", { ascending: true });
@@ -1600,7 +1617,6 @@ app.delete("/admin/drop-questions/:dropId/:questionId", requirePanel, async (c) 
 
 app.get("/admin/segments", requirePanel, async (c) => {
   const { data } = await db().from("segments").select("*").order("created_at", { ascending: false });
-  // FIX TAREA 3: Devolver como { segments: [...] } que es lo que espera NodosManager
   return c.json({ segments: data || [] });
 });
 
@@ -1610,7 +1626,6 @@ app.post("/admin/segments", requirePanel, async (c) => {
     name: body.name, description: body.description || null, filters: body.filters,
   }).select().single();
   if (error) return c.json({ error: error.message }, 500);
-  // FIX TAREA 3: Devolver como { segment: data }
   return c.json({ segment: data }, 201);
 });
 
@@ -1625,7 +1640,6 @@ app.put("/admin/segments/:id", requirePanel, async (c) => {
   const { data, error } = await db().from("segments").update(update).eq("segment_id", id).select().single();
   if (error) return c.json({ error: error.message }, 500);
   if (!data) return c.json({ error: "Segment not found" }, 404);
-  // FIX TAREA 3: Devolver como { segment: data }
   return c.json({ segment: data });
 });
 
@@ -1724,7 +1738,6 @@ app.post("/bot/webhook", async (c) => {
     });
   }
 
-  // TAREA 2 FIX: RACE CONDITION - Webhook
   if (update.message?.contact) {
     const contact = update.message.contact;
     const tgUserId = contact.user_id;
@@ -1736,12 +1749,10 @@ app.post("/bot/webhook", async (c) => {
         .select("node_id").eq("channel", "telegram").eq("channel_identifier", String(tgUserId)).single();
         
       if (ch?.node_id) {
-        // Si el nodo ya existía, lo actualizamos
         await db().from("nodes").update({
           phone: phone, phone_verified: true, phone_source: "telegram"
         }).eq("node_id", ch.node_id);
       } else {
-        // RACE CONDITION FIX: El webhook llegó primero. Creamos un "nodo cascarón" con el teléfono.
         const { data: newNode, error: err } = await db().from("nodes").insert({
           phone: phone, phone_verified: true, phone_source: "telegram", status: "incomplete", onboarding_step: 1
         }).select("node_id").single();
@@ -1763,7 +1774,6 @@ app.post("/bot/webhook", async (c) => {
     return c.json({ ok: true });
   }
 
-  // Handle /start command — smart routing y Captura ToFu (Top of Funnel)
   if (update.message?.text?.startsWith("/start")) {
     const chatId = update.message.chat.id;
     const userId = update.message.from.id;
@@ -1771,7 +1781,6 @@ app.post("/bot/webhook", async (c) => {
     const node = await resolveNode(userId);
     const displayName = node?.nickname || "Node";
     
-    // Not registered -> Creamos el cascarón (ToFu) y damos la bienvenida inicial
     if (!node) {
       const { data: newNode } = await db().from("nodes").insert({
         status: "incomplete", 
@@ -1802,7 +1811,6 @@ app.post("/bot/webhook", async (c) => {
       return c.json({ ok: true });
     }
     
-    // Pending/incomplete/blocked (el usuario ya está en la DB)
     if (node.status !== "active") {
       const nameStr = displayName !== "Node" ? ` ${displayName}` : "";
       const msgs: any = {
@@ -1822,8 +1830,6 @@ app.post("/bot/webhook", async (c) => {
       return c.json({ ok: true });
     }
     
-    // Active user — welcome back
-    // 1. Buscamos si hay un Drop activo
     const { data: activeDrop } = await db()
       .from("drops")
       .select("drop_id, name")
@@ -1835,7 +1841,6 @@ app.post("/bot/webhook", async (c) => {
     let keyboard: any[] = [];
 
     if (activeDrop) {
-      // 2. Si hay drop, nos fijamos si ya lo jugó
       const { data: done } = await db()
         .from("sessions")
         .select("session_id")
@@ -2022,6 +2027,7 @@ app.post("/bot/webhook", async (c) => {
   }
   return c.json({ ok: true });
 });
+
 app.post("/bot/send-message", requirePanel, async (c) => {
   const { chat_id, text, parse_mode } = await c.req.json();
   if (!chat_id || !text) return c.json({ error: "chat_id and text required" }, 400);
@@ -2192,8 +2198,6 @@ app.put("/admin/users/bulk-status", requirePanel, async (c) => {
     
     if (!error) {
       updated++;
-      
-      // Si estamos activando, mandamos el mensaje
       if (status === "active" && botToken()) {
         const { data: channel } = await db()
           .from("node_channels")
