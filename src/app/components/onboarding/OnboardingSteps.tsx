@@ -56,25 +56,9 @@ export function IntroStepView({ step, onNext }: { step: IntroStep; onNext: () =>
   );
 }
 
-// ── PHONE INPUT (Merged Logic & UI) ─────────────────────────
+// ── PHONE INPUT (Solo Telegram Estricto) ─────────────────────────
 
 export function PhoneStepView({ step, onNext }: { step: PhoneStep; onNext: (val: string) => void }) {
-  const [showManual, setShowManual] = useState(false);
-  const [phone, setPhone] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-  const isValid = phone.replace(/\D/g, "").length >= 8;
-
-  useEffect(() => { 
-    if (showManual) setTimeout(() => inputRef.current?.focus(), 400); 
-  }, [showManual]);
-
-  const handleSubmit = () => {
-    if (!isValid) return;
-    inputRef.current?.blur();
-    resetViewport();
-    setTimeout(() => onNext(`+54${phone.replace(/\D/g, "")}`), 150);
-  };
-
   const handleTelegramContact = () => {
     const tg = (window as any).Telegram?.WebApp;
     if (tg?.requestContact) {
@@ -83,68 +67,41 @@ export function PhoneStepView({ step, onNext }: { step: PhoneStep; onNext: (val:
           resetViewport();
           setTimeout(() => onNext("telegram_verified"), 150);
         } else {
-          setShowManual(true);
+          // Si el usuario cancela, cerramos la mini app sin dejarlo avanzar
+          tg.close();
         }
       });
     } else {
-      setShowManual(true);
+      // Fallback para entornos donde no hay SDK de Telegram (web normal)
+      alert("Por favor, abrí esta app desde la versión más reciente de Telegram.");
     }
   };
 
-  if (!showManual) {
-    return (
-      <div className="flex flex-col flex-1">
-        <DuotoneCard>
-          <CardTitle size="md">{step.copy}</CardTitle>
-          <div className="w-full mb-4 flex flex-col gap-3">
-            <ActionButton label="Continuar con Telegram" onClick={handleTelegramContact} />
-            <button
-              onClick={() => setShowManual(true)}
-              className="text-[12px] opacity-60 font-['Fira_Code'] underline mt-2 text-center transition-opacity hover:opacity-100"
-              style={{ color: "var(--dynamic-fg, #fff)" }}
-            >
-              Ingresar número manualmente
-            </button>
-          </div>
-        </DuotoneCard>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col flex-1">
-      <DuotoneCard>
-        <CardTitle size="md">{step.copy}</CardTitle>
-        <div className="w-full mb-2">
-          <div
-            className="w-full h-[60px] rounded-[8px] border-2 flex items-center px-4 gap-3"
-            style={{ borderColor: "var(--dynamic-bg, #000)" }}
-          >
-            <span
-              className="font-['Roboto'] font-normal text-[18px] shrink-0 opacity-40"
-              style={{ color: "var(--dynamic-bg, #000)" }}
-            >
-              🇦🇷 +54
-            </span>
-            <input
-              ref={inputRef}
-              type="tel"
-              inputMode="numeric"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value.replace(/[^\d\s-]/g, ""))}
-              placeholder="11 4000 0000"
-              className="flex-1 bg-transparent outline-none font-['Roboto'] font-normal text-[18px]"
-              style={{
-                color: "var(--dynamic-bg, #000)",
-                caretColor: "var(--dynamic-bg, #000)",
-                fontSize: "18px",
-              }}
-              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-            />
-          </div>
-        </div>
-        <ActionButton label="Siguiente" disabled={!isValid} onClick={handleSubmit} />
-      </DuotoneCard>
+    <div className="flex flex-col items-center justify-center flex-1 h-full px-4 text-center mt-12">
+      <h1 
+        className="font-['Oswald'] font-bold text-[32px] leading-tight mb-4 uppercase"
+        style={{ color: "var(--dynamic-fg, #fff)" }}
+      >
+        {step.prompt || "Tu número de celular. El único dato personal que pedimos."}
+      </h1>
+      
+      {step.description && (
+        <p className="font-['Roboto'] text-[16px] opacity-80 mb-10" style={{ color: "var(--dynamic-fg, #fff)" }}>
+          {step.description}
+        </p>
+      )}
+
+      <button
+        onClick={handleTelegramContact}
+        className="w-full py-4 rounded-xl font-bold font-['Roboto'] text-[18px] transition-transform active:scale-95 shadow-lg mt-auto mb-8"
+        style={{ 
+          backgroundColor: "var(--dynamic-fg, #fff)", 
+          color: "var(--dynamic-bg, #000)" 
+        }}
+      >
+        Continuar con Telegram
+      </button>
     </div>
   );
 }
@@ -713,7 +670,6 @@ export function ClosingStepView({
   positionBoost: number;
 }) {
   const [copied, setCopied] = useState(false);
-  // Mantuve "BrutalDropBot" como tenías originalmente en vez del "BBBrutalbot" de Figma Make
   const referralLink = `https://t.me/BrutalDropBot?startapp=ref_${referralCode}`;
   const whatsappMsg = `Metete en BRUTAL. Es una app donde respondes preguntas anonimas y cobras cash real. Usa mi link y salto la fila: ${referralLink}`;
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(whatsappMsg)}`;
