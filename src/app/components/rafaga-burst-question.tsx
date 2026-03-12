@@ -175,30 +175,51 @@ export function RafagaBurstQuestion({
   
   if (phase === "countdown") {
     return (
-      <div className="flex items-center justify-center h-dvh bg-black">
-        <span className="font-['Roboto'] font-bold text-[128px] text-white">{countdownValue}</span>
+      <div className="flex items-center justify-center h-dvh" style={{ backgroundColor: "var(--dynamic-bg)" }}>
+        <span className="font-['Roboto'] font-bold text-[128px]" style={{ color: "var(--dynamic-fg)" }}>
+          {countdownValue}
+        </span>
       </div>
     );
   }
 
   if (!item || !item.trigger) {
-    return <div className="flex items-center justify-center h-dvh bg-black"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white opacity-20"></div></div>;
+    return (
+      <div className="flex items-center justify-center h-dvh" style={{ backgroundColor: "var(--dynamic-bg)" }}>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: "var(--dynamic-fg)", opacity: 0.2 }}></div>
+      </div>
+    );
   }
 
   const hasImage = item.trigger.type === "image" || item.trigger.type === "image_text";
 
   return (
-    <div className="relative h-dvh overflow-hidden flex flex-col" style={{ backgroundColor: transitioning ? "var(--dynamic-fg, #fff)" : "var(--dynamic-bg, #000)" }}>
+    <div className="relative h-dvh overflow-hidden flex flex-col" style={{ backgroundColor: transitioning ? "var(--dynamic-fg)" : "var(--dynamic-bg)" }}>
       {/* Top Indicators */}
       <div className="flex flex-col items-center pt-4 z-30" style={{ opacity: blinkOpacity }}>
         <div className="flex items-center gap-[6px]">
           {items.map((_, i) => (
-            <div key={i} className="w-[11px] h-[11px] rounded-full" style={{ backgroundColor: "var(--dynamic-fg, #fff)", opacity: i <= currentIdx ? 1 : 0.2 }} />
+            <div 
+              key={i} 
+              className="w-[11px] h-[11px] rounded-full" 
+              style={{ 
+                backgroundColor: "var(--dynamic-fg)", 
+                opacity: i <= currentIdx ? 1 : 0.2,
+                border: i <= currentIdx ? 'none' : '1px solid var(--dynamic-fg)' 
+              }} 
+            />
           ))}
         </div>
         {!isSlider && (
-          <div className="w-[80%] h-[3px] rounded-full mt-3 overflow-hidden relative bg-white/20">
-            <div className="h-full bg-white" style={{ width: `${subProgress}%` }} />
+          <div className="w-[80%] h-[3px] rounded-full mt-3 overflow-hidden relative" style={{ backgroundColor: "var(--dynamic-fg)", opacity: 0.2 }}>
+            <div 
+              className="absolute inset-0 h-full" 
+              style={{ 
+                backgroundColor: "var(--dynamic-fg)", 
+                width: `${subProgress}%`, 
+                opacity: 1 
+              }} 
+            />
           </div>
         )}
       </div>
@@ -209,15 +230,21 @@ export function RafagaBurstQuestion({
           <img src={item.trigger.imageUrl} className="absolute inset-0 w-full h-full object-cover z-0" alt="" />
         )}
         <div className="relative z-10 w-full flex flex-col items-center">
-          <h2 className="font-['Roboto'] font-bold text-[39px] text-center leading-tight mb-12" style={{ color: "var(--dynamic-fg, #fff)" }}>
+          <h2 className="font-['Roboto'] font-bold text-[39px] text-center leading-tight mb-12" style={{ color: "var(--dynamic-fg)" }}>
             {item.trigger.text}
           </h2>
-          <InteractionRenderer interaction={item.interaction} selectedValue={selectedValue} onSelect={handleSelect} />
+          <InteractionRenderer 
+            interaction={item.interaction} 
+            selectedValue={selectedValue} 
+            onSelect={handleSelect} 
+          />
         </div>
       </div>
     </div>
   );
 }
+
+// ── INTERACTION RENDERER ─────────────────────────────────────
 
 function InteractionRenderer({ interaction, selectedValue, onSelect }: { interaction: any, selectedValue: any, onSelect: any }) {
   if (interaction.type === "emoji_binary") {
@@ -234,12 +261,20 @@ function InteractionRenderer({ interaction, selectedValue, onSelect }: { interac
     const { buttonA = "A", buttonB = "B" } = interaction;
     return (
       <div className="flex gap-4 w-full">
-        <button onClick={() => onSelect(buttonA)} className="flex-1 h-16 rounded-xl font-bold text-xl border-2" 
-          style={{ backgroundColor: selectedValue === buttonA ? 'var(--dynamic-fg)' : 'transparent', color: selectedValue === buttonA ? 'var(--dynamic-bg)' : 'var(--dynamic-fg)', borderColor: 'var(--dynamic-fg)' }}>
+        <button onClick={() => onSelect(buttonA)} className="flex-1 h-16 rounded-xl font-bold text-xl border-2 transition-all" 
+          style={{ 
+            backgroundColor: selectedValue === buttonA ? 'var(--dynamic-fg)' : 'transparent', 
+            color: selectedValue === buttonA ? 'var(--dynamic-bg)' : 'var(--dynamic-fg)', 
+            borderColor: 'var(--dynamic-fg)' 
+          }}>
           {buttonA}
         </button>
-        <button onClick={() => onSelect(buttonB)} className="flex-1 h-16 rounded-xl font-bold text-xl border-2" 
-          style={{ backgroundColor: selectedValue === buttonB ? 'var(--dynamic-fg)' : 'transparent', color: selectedValue === buttonB ? 'var(--dynamic-bg)' : 'var(--dynamic-fg)', borderColor: 'var(--dynamic-fg)' }}>
+        <button onClick={() => onSelect(buttonB)} className="flex-1 h-16 rounded-xl font-bold text-xl border-2 transition-all" 
+          style={{ 
+            backgroundColor: selectedValue === buttonB ? 'var(--dynamic-fg)' : 'transparent', 
+            color: selectedValue === buttonB ? 'var(--dynamic-bg)' : 'var(--dynamic-fg)', 
+            borderColor: 'var(--dynamic-fg)' 
+          }}>
           {buttonB}
         </button>
       </div>
@@ -252,6 +287,8 @@ function InteractionRenderer({ interaction, selectedValue, onSelect }: { interac
   }
   return null;
 }
+
+// ── SLIDER ───────────────────────────────────────────────────
 
 function SliderInteraction({ config, onConfirm }: { config: any, onConfirm: any }) {
   const { min, max, labelLeft, labelRight } = config;
@@ -273,7 +310,7 @@ function SliderInteraction({ config, onConfirm }: { config: any, onConfirm: any 
     const stop = () => setIsDragging(false);
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", stop);
-    window.addEventListener("touchmove", move);
+    window.addEventListener("touchmove", move, { passive: false });
     window.addEventListener("touchend", stop);
     return () => {
       window.removeEventListener("mousemove", move);
@@ -287,21 +324,38 @@ function SliderInteraction({ config, onConfirm }: { config: any, onConfirm: any 
 
   return (
     <div className="w-full flex flex-col gap-4">
-      <div ref={trackRef} className="h-12 relative flex items-center bg-white/10 rounded-full border-2 border-white/20 px-2 cursor-pointer" 
-        onMouseDown={() => setIsDragging(true)} onTouchStart={() => setIsDragging(true)}>
-        <div className="absolute h-8 w-8 rounded-full shadow-xl bg-white" style={{ left: `calc(${percent}% - 16px)` }} />
+      <div 
+        ref={trackRef} 
+        className="h-12 relative flex items-center rounded-full border-2 px-2 cursor-pointer" 
+        style={{ backgroundColor: "rgba(var(--dynamic-fg-rgb, 255,255,255), 0.1)", borderColor: "var(--dynamic-fg)" }}
+        onMouseDown={() => setIsDragging(true)} 
+        onTouchStart={() => setIsDragging(true)}
+      >
+        <div 
+          className="absolute h-8 w-8 rounded-full shadow-xl" 
+          style={{ 
+            backgroundColor: "var(--dynamic-fg)", 
+            left: `calc(${percent}% - 16px)`,
+            transition: isDragging ? 'none' : 'left 0.1s'
+          }} 
+        />
       </div>
       <div className="flex justify-between text-xs font-bold" style={{ color: "var(--dynamic-fg)" }}>
         <span>{labelLeft}</span>
         <span>{labelRight}</span>
       </div>
-      <button onClick={() => onConfirm(value)} className="h-16 font-bold rounded-xl text-xl" 
-        style={{ backgroundColor: "var(--dynamic-fg)", color: "var(--dynamic-bg)" }}>
+      <button 
+        onClick={() => onConfirm(value)} 
+        className="h-16 font-bold rounded-xl text-xl transition-transform active:scale-95" 
+        style={{ backgroundColor: "var(--dynamic-fg)", color: "var(--dynamic-bg)" }}
+      >
         Confirmar
       </button>
     </div>
   );
 }
+
+// ── PRE-SCREEN ───────────────────────────────────────────────
 
 function PreScreen({ title, subtitle }: { title: string; subtitle?: string }) {
   const [displayedSubtitle, setDisplayedSubtitle] = useState("");
@@ -318,9 +372,9 @@ function PreScreen({ title, subtitle }: { title: string; subtitle?: string }) {
   }, [subtitle]);
 
   return (
-    <div className="flex flex-col items-center justify-center h-dvh px-8 bg-black text-white">
-      <h1 className="font-bold text-4xl text-center leading-tight mb-4">{title}</h1>
-      <p className="font-bold text-2xl text-center opacity-80">{displayedSubtitle}_</p>
+    <div className="flex flex-col items-center justify-center h-dvh px-8" style={{ backgroundColor: "var(--dynamic-bg)" }}>
+      <h1 className="font-bold text-4xl text-center leading-tight mb-4" style={{ color: "var(--dynamic-fg)" }}>{title}</h1>
+      <p className="font-bold text-2xl text-center opacity-80" style={{ color: "var(--dynamic-fg)" }}>{displayedSubtitle}_</p>
     </div>
   );
 }
