@@ -794,13 +794,16 @@ app.post("/apply", async (c) => {
     if (ch?.[0]) existingNodeId = ch[0].node_id;
   }
 
+  // FIX: Forzamos estado ACTIVE directamente al completar
+  const isComplete = nickname && age && gender;
+  const finalStatus = isComplete ? "active" : "incomplete";
+  const finalStep = isComplete ? 100 : 1;
+
   let newNode;
   if (existingNodeId) {
-    // FIX: Forzamos el estado a pending porque si llegó acá, completó el flujo.
-    // Además, solo actualizamos los campos que NO vengan vacíos por la reanudación.
     const updateData: any = {
-      status: "pending",
-      onboarding_step: 99,
+      status: finalStatus,
+      onboarding_step: finalStep,
       ...tgFields
     };
     if (nickname) updateData.nickname = nickname;
@@ -815,21 +818,27 @@ app.post("/apply", async (c) => {
     if (handles && Object.keys(handles).length > 0) updateData.handles = handles;
     if (referredBy) updateData.referred_by = referredBy;
 
+    if (finalStatus === "active") updateData.approved_at = new Date().toISOString();
+
     const { data: updatedNode, error: nodeErr } = await db().from("nodes").update(updateData).eq("node_id", existingNodeId).select("node_id, referral_code, status").single();
     
     if (nodeErr) return c.json({ ok: false, error: nodeErr.message }, 500);
     newNode = updatedNode;
   } else {
     // Flujo normal (el usuario cargó a mano o el frontend llegó antes que el webhook)
-    const { data: insertedNode, error: nodeErr } = await db().from("nodes").insert({
+    const insertData: any = {
       phone: normalPhone, nickname: nickname || null, age: age || null, gender: gender || null,
       location_province: locationProvince, location_city: locationCity,
       phone_brand: phoneBrand || null, compass_vector: compassVector,
       compass_archetype: compassArchetype, brand_vector: brandVector,
       handles: handles || null, referred_by: referredBy, 
-      status: "pending", onboarding_step: 99,
+      status: finalStatus, onboarding_step: finalStep,
       ...tgFields
-    }).select("node_id, referral_code, status").single();
+    };
+
+    if (finalStatus === "active") insertData.approved_at = new Date().toISOString();
+
+    const { data: insertedNode, error: nodeErr } = await db().from("nodes").insert(insertData).select("node_id, referral_code, status").single();
     
     if (nodeErr) return c.json({ ok: false, error: nodeErr.message }, 500);
     newNode = insertedNode;
@@ -890,27 +899,28 @@ app.post("/apply", async (c) => {
     );
   }
 
-  const { count: pendingCount } = await db()
-    .from("nodes").select("*", { count: "exact", head: true })
-    .in("status", ["pending", "active"]);
-  const queuePosition = (pendingCount || 1) + 642;
-
-  if (telegramUserId && botToken()) {
+  // MENSAJE DE AUTO-ACTIVACIÓN
+  if (isComplete && telegramUserId && botToken()) {
     try {
       await fetch(`https://api.telegram.org/bot${botToken()}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chat_id: telegramUserId,
-          text: `✅ <b>Registro completo</b>\n\nTu posición en la fila: <b>#${queuePosition}</b>\n\nActivá las notificaciones 🔔 que te vamos a avisar por acá cuando estés dentro y tengas un Drop activo para jugar.\n\nTu link de invitación: <b>t.me/BrutalDropBot?start=${newNode.referral_code}</b>\nCompartilo con amigos para subir en la fila.`,
+          text: `🔥 <b>¡Tu cuenta ya está activa!</b>\n\nEstás oficialmente adentro de BRUTAL.\n\nJugá tu primer Drop ahora, ganá cash real y acumulá Golden Tickets para el sorteo de entradas al <b>Lollapalooza 2026</b>.\n\n🔔 <i>Importante: Activá las notificaciones de este chat para que te avisemos apenas salga un Drop nuevo.</i>`,
           parse_mode: "HTML",
+          reply_markup: {
+            inline_keyboard: [[
+              { text: "▶️ Jugar Primer Drop", web_app: { url: `https://brutal.up.railway.app/` } }
+            ]]
+          }
         }),
       });
     } catch (e) {
       console.error("[BOT] Post-registration message failed:", e);
     }
   }
-  return c.json({ ok: true, applicationId: newNode.node_id, referralCode: newNode.referral_code, queuePosition }, 201);
+  return c.json({ ok: true, applicationId: newNode.node_id, referralCode: newNode.referral_code, queuePosition: 0 }, 201);
 });
 
 app.get("/apply/check", async (c) => {
@@ -923,7 +933,6 @@ app.get("/apply/check", async (c) => {
   if (!data?.[0]) return c.json({ exists: false });
   return c.json({ exists: true, nodeId: data[0].node_id, referralCode: data[0].referral_code, onboardingStep: data[0].onboarding_step, status: data[0].status });
 });
-
 // ============================================================================
 // PROGRESSIVE ONBOARDING
 // ============================================================================
