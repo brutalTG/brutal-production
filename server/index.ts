@@ -1769,16 +1769,13 @@ app.post("/bot/webhook", async (c) => {
         }).select("node_id").single();
         
         if (newNode) {
-          await db().from("node_channels").insert({
-            node_id: newNode.node_id, channel: "telegram", channel_identifier: String(tgUserId), is_primary: true
-          });
-          await db().from("profiles").insert({
-            node_id: newNode.node_id, cash_balance: 0, cash_lifetime: 0, cash_withdrawn: 0,
-            tickets_current: 0, tickets_lifetime: 0, drops_completed: 0, bot_questions_answered: 0,
-            traps_passed: 0, traps_failed: 0, current_streak: 0, best_streak: 0,
-          });
           const newAnon = "anon_" + crypto.randomUUID().replace(/-/g, "").slice(0, 32);
-          await db().from("anonymous_id_map").insert({ node_id: newNode.node_id, anonymous_id: newAnon });
+          
+          Promise.all([
+            db().from("node_channels").insert({ node_id: newNode.node_id, channel: "telegram", channel_identifier: String(tgUserId), is_primary: true }),
+            db().from("profiles").insert({ node_id: newNode.node_id, cash_balance: 0, cash_lifetime: 0, cash_withdrawn: 0, tickets_current: 0, tickets_lifetime: 0, drops_completed: 0, bot_questions_answered: 0, traps_passed: 0, traps_failed: 0, current_streak: 0, best_streak: 0 }),
+            db().from("anonymous_id_map").insert({ node_id: newNode.node_id, anonymous_id: newAnon })
+          ]).catch(e => console.error("[BOT] Error en inserts paralelos:", e));
         }
       }
     }
@@ -1789,9 +1786,9 @@ app.post("/bot/webhook", async (c) => {
     const chatId = update.message.chat.id;
     const userId = update.message.from.id;
     
-    const node = await resolveNode(userId);
-    const displayName = node?.nickname || "Node";
+    let node = await resolveNode(userId);
     
+    // Si no existe, creamos el cascarón (ToFu)
     if (!node) {
       const { data: newNode } = await db().from("nodes").insert({
         status: "incomplete", 
@@ -1799,37 +1796,56 @@ app.post("/bot/webhook", async (c) => {
       }).select("node_id").single();
       
       if (newNode) {
-        const { data: exists } = await db().from("node_channels").select("id").eq("channel", "telegram").eq("channel_identifier", String(userId)).limit(1);
-        if (!exists?.[0]) {
-          await db().from("node_channels").insert({
-            node_id: newNode.node_id, channel: "telegram", channel_identifier: String(userId), is_primary: true
-          });
-        }
-        await db().from("profiles").insert({
-          node_id: newNode.node_id, cash_balance: 0, cash_lifetime: 0, cash_withdrawn: 0,
-          tickets_current: 0, tickets_lifetime: 0, drops_completed: 0, bot_questions_answered: 0,
-          traps_passed: 0, traps_failed: 0, current_streak: 0, best_streak: 0,
-        });
         const newAnon = "anon_" + crypto.randomUUID().replace(/-/g, "").slice(0, 32);
-        await db().from("anonymous_id_map").insert({ node_id: newNode.node_id, anonymous_id: newAnon });
+        
+        // FIX: Insertamos todo en paralelo para que el servidor responda FLASH y Telegram no mande duplicados
+        Promise.all([
+          db().from("node_channels").insert({ node_id: newNode.node_id, channel: "telegram", channel_identifier: String(userId), is_primary: true }),
+          db().from("profiles").insert({ node_id: newNode.node_id, cash_balance: 0, cash_lifetime: 0, cash_withdrawn: 0, tickets_current: 0, tickets_lifetime: 0, drops_completed: 0, bot_questions_answered: 0, traps_passed: 0, traps_failed: 0, current_streak: 0, best_streak: 0 }),
+          db().from("anonymous_id_map").insert({ node_id: newNode.node_id, anonymous_id: newAnon })
+        ]).catch(e => console.error("[BOT] Error en inserts paralelos:", e));
+        
+        // Asignamos el nodo localmente para que no tenga que volver a buscarlo
+        node = { node_id: newNode.node_id, status: "incomplete", nickname: null };
       }
-
-      await tgSend("sendMessage", {
-        chat_id: chatId,
-        text: `⚡ <b>BRUTAL</b>\n\nHola.\n\nRegistrate para jugar Drops, ganar plata real y competir por premios.`,
-        parse_mode: "HTML",
-        reply_markup: { inline_keyboard: [[
-          { text: "🔥 Entrar", web_app: { url: `https://brutal.up.railway.app/entrar` } }
-        ]] }
-      });
+    }
+    
+    // Buscamos en qué paso real está el usuario
+    const { data: stepData } = await db().from("nodes").select("onboarding_step").eq("node_id", node.node_id).limit(1);
+    const currentStep = stepData?.[0]?.onboarding_step || 1;
+    const displayName = node.nickname || "Node";
+    
+    // LÓGICA INTELIGENTE DE ESTADOS
+    if (node.status === "incomplete") {
+      if (currentStep <= 1) {
+        // Es un usuario 100% nuevo (o un "Doble Webhook" engañoso de Telegram)
+        await tgSend("sendMessage", {
+          chat_id: chatId,
+          text: `⚡ <b>BRUTAL</b>\n\nHola.\n\nRegistrate para jugar Drops, ganar plata real y competir por premios.`,
+          parse_mode: "HTML",
+          reply_markup: { inline_keyboard: [[
+            { text: "🔥 Entrar", web_app: { url: `https://brutal.up.railway.app/entrar` } }
+          ]] }
+        });
+      } else {
+        // Es un usuario que SÍ avanzó en el formulario y se fue
+        await tgSend("sendMessage", {
+          chat_id: chatId,
+          text: `📝 Hola${displayName !== "Node" ? ` ${displayName}` : ""}, te quedaste por la mitad.\n\nCompletá tu registro para asegurar tu lugar en la fila.`,
+          parse_mode: "HTML",
+          reply_markup: { inline_keyboard: [[
+            { text: "📝 Completar registro", web_app: { url: `https://brutal.up.railway.app/entrar` } }
+          ]] }
+        });
+      }
       return c.json({ ok: true });
     }
     
+    // Si la cuenta está pending, blocked o rejected
     if (node.status !== "active") {
       const nameStr = displayName !== "Node" ? ` ${displayName}` : "";
       const msgs: any = {
         pending: `⏳ Hola${nameStr}, tu cuenta está en revisión. Te avisamos cuando estés dentro.`,
-        incomplete: `📝 Hola${nameStr}, te falta completar el registro.`,
         blocked: "🚫 Tu cuenta fue suspendida.",
         rejected: "❌ Tu solicitud no fue aprobada.",
       };
@@ -1837,13 +1853,11 @@ app.post("/bot/webhook", async (c) => {
         chat_id: chatId,
         text: msgs[node.status] || "⚠️ Tu cuenta no está activa.",
         parse_mode: "HTML",
-        ...(node.status === "incomplete" ? { reply_markup: { inline_keyboard: [[
-          { text: "📝 Completar registro", web_app: { url: `https://brutal.up.railway.app/entrar` } }
-        ]] } } : {})
       });
       return c.json({ ok: true });
     }
     
+    // Si la cuenta está ACTIVE (Usuario recurrente)
     const { data: activeDropRows } = await db()
       .from("drops")
       .select("drop_id, name")
