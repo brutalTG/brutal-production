@@ -1,9 +1,6 @@
 // ============================================================
 // QUESTION RENDERER — Dispatches current question to the right component
 // ============================================================
-// Handles both full-screen types (hot_take, dead_drop, media_reaction)
-// and standard types rendered inside the header layout.
-// ============================================================
 
 import type { Question } from "./drop-types";
 import type { UserAnswer } from "./archetype-engine";
@@ -140,6 +137,9 @@ export function QuestionRenderer({
 
   // ---- STANDARD TYPES (rendered inside header layout) ----
 
+  // Helper para normalizar los items de ráfagas (evita el error 'trigger')
+  const rafagaItems = q.items || (q as any).pairs || (q as any).data?.items || [];
+
   return (
     <>
       {q.type === "choice" && (
@@ -234,11 +234,11 @@ export function QuestionRenderer({
         />
       )}
 
-      {(q.type === "rafaga" || q.type === "rafaga_emoji") && q.type === "rafaga" && (
+      {q.type === "rafaga" && (
         <RafagaQuestion
           prompt={q.prompt}
           promptBold={q.promptBold}
-          items={q.items}
+          items={rafagaItems}
           secondsPerItem={q.secondsPerItem}
           onComplete={(answers) => {
             if (!pipeline.acquireLock()) return;
@@ -246,8 +246,11 @@ export function QuestionRenderer({
             const latencyMs = pipeline.captureLatency();
             const abAnswers = answers.map((a, i) => {
               if (a === null) return null;
-              if (a === q.items[i]?.optionA) return "A";
-              if (a === q.items[i]?.optionB) return "B";
+              const item = rafagaItems[i];
+              const optA = item?.optionA || item?.option_a || item?.emoji_left || item?.brand_a;
+              const optB = item?.optionB || item?.option_b || item?.emoji_right || item?.brand_b;
+              if (a === optA) return "A";
+              if (a === optB) return "B";
               return null;
             });
             pipeline.submitStandard({ type: "rafaga", answers: abAnswers, latencyMs });
@@ -338,7 +341,7 @@ export function QuestionRenderer({
       {q.type === "rafaga_emoji" && (
         <RafagaEmojiQuestion
           promptBold={q.promptBold}
-          items={q.items}
+          items={rafagaItems}
           secondsPerItem={q.secondsPerItem}
           onComplete={(answers) => {
             if (!pipeline.acquireLock()) return;
@@ -346,8 +349,11 @@ export function QuestionRenderer({
             const latencyMs = pipeline.captureLatency();
             const abAnswers = answers.map((a, i) => {
               if (a === null) return null;
-              if (a === q.items[i]?.optionA) return "A";
-              if (a === q.items[i]?.optionB) return "B";
+              const item = rafagaItems[i];
+              const optA = item?.optionA || item?.option_a || item?.emoji_left || item?.brand_a;
+              const optB = item?.optionB || item?.option_b || item?.emoji_right || item?.brand_b;
+              if (a === optA) return "A";
+              if (a === optB) return "B";
               return null;
             });
             pipeline.submitStandard({ type: "rafaga", answers: abAnswers, latencyMs });
@@ -358,17 +364,14 @@ export function QuestionRenderer({
       {q.type === "rafaga_burst" && (
         <RafagaBurstQuestion
           preScreen={q.preScreen}
-          items={q.items}
+          items={rafagaItems}
           secondsPerItem={q.secondsPerItem}
           onComplete={(answers) => {
             if (!pipeline.acquireLock()) return;
             pipeline.markFirstAnswered();
             const latencyMs = pipeline.captureLatency();
-            // Para rafaga_burst, las respuestas pueden ser emojis, texto o números
-            // Convertimos a formato simplificado para archetype engine
             const mixedAnswers = answers.map((a) => {
               if (a === null) return null;
-              // Si es string, lo dejamos como está; si es número, lo convertimos a string
               return String(a);
             });
             pipeline.submitStandard({ type: "rafaga_burst", answers: mixedAnswers, latencyMs });
