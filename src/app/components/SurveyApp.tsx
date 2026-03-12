@@ -57,10 +57,30 @@ function useNodeGate() {
     checkedRef.current = true;
 
     async function checkGate() {
-      // 1. Forzamos a que Telegram expanda la app a pantalla completa (saca el half-screen)
-      try { (window as any).Telegram?.WebApp?.expand?.(); } catch(e) {}
+      // 1. ROMPEMOS EL CATCH-22: Encendemos el SDK de Telegram ANTES de verificar nada
+      initTelegramSDK();
 
-      // 2. Check preview mode (Panel de Admin)
+      // 2. SMART POLLING: Esperamos hasta 2 segundos a que el script cargue y Telegram inyecte el ID
+      let tg = (window as any).Telegram?.WebApp;
+      let telegramUserId = getTelegramUserId();
+      let retries = 0;
+      
+      while ((!tg || !telegramUserId) && retries < 20) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        tg = (window as any).Telegram?.WebApp;
+        telegramUserId = getTelegramUserId();
+        retries++;
+      }
+
+      // 3. Forzamos pantalla completa apenas Telegram responde (Adiós media pantalla)
+      if (tg) {
+        try { 
+          tg.ready(); 
+          tg.expand(); 
+        } catch(e) {}
+      }
+
+      // 4. Modo Preview para el Panel de Admin
       const params = new URLSearchParams(window.location.search);
       if (params.has("preview")) {
         console.log("[BRUTAL] Preview mode — skipping node gate");
@@ -68,25 +88,16 @@ function useNodeGate() {
         return;
       }
 
-      // 3. SMART POLLING: Le damos hasta 1.5 segundos a Telegram para que inyecte el ID
-      let telegramUserId = getTelegramUserId();
-      let retries = 0;
-      while (!telegramUserId && retries < 15) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        telegramUserId = getTelegramUserId();
-        retries++;
-      }
-
-      // 4. Si de verdad no está en Telegram (ej: abrió el link en Safari)
+      // 5. Si falló la obtención del ID, lo pateamos a /entrar para que reintente
       if (!telegramUserId) {
-        console.log("[BRUTAL] Fuera de Telegram — Redirigiendo al bot automáticamente");
-        window.location.href = "https://t.me/BrutalDropBot"; 
-        return; // Se queda en loading porque la página va a saltar al bot
+        console.warn("[BRUTAL] Fuera de Telegram o ID no detectado. Pidiendo re-ingreso.");
+        setStatus("not_found"); 
+        return; 
       }
 
-      const initData = (window as any).Telegram?.WebApp?.initData || "";
+      const initData = tg?.initData || "";
 
-      // 5. Consultamos al Backend (Gate)
+      // 6. Consultamos al Backend tu estado real
       try {
         const r = await fetch("/gate", {
           headers: initData ? { "X-Telegram-Init-Data": initData } : {},
@@ -118,7 +129,7 @@ function useNodeGate() {
         }
       } catch (err) {
         console.error("[BRUTAL] Gate check failed:", err);
-        setStatus("active");
+        setStatus("active"); // Fail-open para no bloquear a los usuarios si hay un microcorte
       }
     }
 
