@@ -1137,9 +1137,14 @@ app.put("/apply/:nodeId/complete", async (c) => {
   const { compass_vector, compass_archetype, handles, brand_vector } = body;
   const { data: nodes } = await db().from("nodes").select("node_id, status, phone").eq("node_id", nodeId).limit(1);
   if (!nodes?.[0]) return c.json({ ok: false, error: "Node not found" }, 404);
+  
+  // FIX: Auto-activación. Lo pasamos directo a "active" y registramos la fecha de aprobación
   const { error } = await db().from("nodes").update({
     compass_vector: compass_vector || null, compass_archetype: compass_archetype || null,
-    brand_vector: brand_vector || null, handles: handles || null, onboarding_step: 99, status: "pending",
+    brand_vector: brand_vector || null, handles: handles || null, 
+    onboarding_step: 100, 
+    status: "active", 
+    approved_at: new Date().toISOString()
   }).eq("node_id", nodeId);
   if (error) return c.json({ ok: false, error: error.message }, 500);
   
@@ -1147,18 +1152,19 @@ app.put("/apply/:nodeId/complete", async (c) => {
   const { data: channel } = await db().from("node_channels").select("channel_identifier").eq("node_id", nodeId).eq("channel", "telegram").limit(1);
 
   if (channel?.[0]?.channel_identifier && botToken()) {
-    const { count } = await db().from("nodes").select("*", { count: "exact", head: true }).in("status", ["pending", "active"]);
-    
-    const queuePosition = (count || 1) + 642;
-    
     try {
       await fetch(`https://api.telegram.org/bot${botToken()}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chat_id: channel[0].channel_identifier,
-          text: `✅ <b>Registro completo</b>\n\nTu posición en la fila: <b>#${queuePosition}</b>\n\nActivá las notificaciones 🔔 que te vamos a avisar por acá cuando estés dentro y tengas un Drop activo para jugar.\n\nTu link de invitación: <b>t.me/BrutalDropBot?start=${updated?.referral_code || ""}</b>\nCompartilo con amigos para subir en la fila.`,
+          text: `🔥 <b>¡Tu cuenta ya está activa!</b>\n\nEstás oficialmente adentro de BRUTAL.\n\nJugá tu primer Drop ahora, ganá cash real y acumulá Golden Tickets para el sorteo de entradas al <b>Lollapalooza 2026</b>.\n\n🔔 <i>Importante: Activá las notificaciones de este chat para que te avisemos apenas salga un Drop nuevo.</i>`,
           parse_mode: "HTML",
+          reply_markup: {
+            inline_keyboard: [[
+              { text: "▶️ Jugar Primer Drop", web_app: { url: `https://brutal.up.railway.app/` } }
+            ]]
+          }
         }),
       });
     } catch (e) {
@@ -1166,8 +1172,10 @@ app.put("/apply/:nodeId/complete", async (c) => {
     }
   }
 
-  return c.json({ ok: true, nodeId, referralCode: updated?.referral_code || null, status: "pending" });
-});// ============================================================================
+  return c.json({ ok: true, nodeId, referralCode: updated?.referral_code || null, status: "active" });
+});
+
+// ============================================================================
 // USER PROFILE and REWARDS
 // ============================================================================
 
@@ -2174,6 +2182,75 @@ setInterval(async () => {
     console.error("[RESCUE BOT] Error en el worker:", err);
   }
 }, 15 * 60 * 1000); // Se ejecuta cada 15 minutos (900,000 ms)
+
+// ============================================================================
+// FOLLOW-UP BOT (15 min después del Drop - Referral & Notificaciones)
+// ============================================================================
+
+setInterval(async () => {
+  try {
+    const botT = botToken();
+    if (!botT) return;
+
+    const now = new Date().getTime();
+    const fifteenMinsAgo = new Date(now - 15 * 60 * 1000).toISOString();
+    const thirtyMinsAgo = new Date(now - 30 * 60 * 1000).toISOString(); // Ventana de 15 min para no repetirlo al infinito
+
+    // Buscamos perfiles que completaron >0 drops hace exactamente 15-30 mins
+    const { data: profiles } = await db()
+      .from("profiles")
+      .select("node_id, drops_completed, last_drop_at, nodes!inner(nickname, referral_code, onboarding_data)")
+      .gt("drops_completed", 0)
+      .lte("last_drop_at", fifteenMinsAgo)
+      .gte("last_drop_at", thirtyMinsAgo);
+
+    if (!profiles || profiles.length === 0) return;
+
+    for (const p of profiles) {
+      const node = (p as any).nodes;
+      const data = node.onboarding_data || {};
+      
+      // Si ya le mandamos el recordatorio de referidos, lo salteamos
+      if (data.referral_reminded) continue;
+
+      const { data: channel } = await db()
+        .from("node_channels")
+        .select("channel_identifier")
+        .eq("node_id", p.node_id)
+        .eq("channel", "telegram")
+        .limit(1);
+
+      if (channel?.[0]?.channel_identifier) {
+        const referralLink = `https://t.me/BrutalDropBot/jugar?startapp=ref_${node.referral_code}`;
+        const displayName = node.nickname ? ` ${node.nickname}` : "";
+        
+        const text = `🔥 ¡Bien jugado${displayName}!\n\nYa completaste tu primer Drop.\n\nAcordate que por cada amigo que invites a BRUTAL, vas a multiplicar tus ganancias y subir en el ranking.\n\nCompartile tu link exclusivo a tus amigos:\n<code>${referralLink}</code>\n\n🔔 <b>¡Activá las notificaciones de este chat!</b> Es la única forma de enterarte a tiempo cuando hay plata nueva en la mesa.`;
+
+        await fetch(`https://api.telegram.org/bot${botT}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: channel[0].channel_identifier,
+            text: text,
+            parse_mode: "HTML",
+            reply_markup: {
+              inline_keyboard: [[
+                { text: "📲 Invitar a un amigo", url: `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent("Sumate a BRUTAL, respondé preguntas y ganá cash real.")}` }
+              ]]
+            }
+          }),
+        });
+
+        // Marcamos como enviado para no spamear
+        data.referral_reminded = true;
+        await db().from("nodes").update({ onboarding_data: data }).eq("node_id", p.node_id);
+        console.log(`[FOLLOW-UP BOT] Recordatorio enviado a ${p.node_id}`);
+      }
+    }
+  } catch (err) {
+    console.error("[FOLLOW-UP BOT] Error:", err);
+  }
+}, 5 * 60 * 1000); // Chequea cada 5 minutos
 
 // ============================================================================
 // STATIC FILES
