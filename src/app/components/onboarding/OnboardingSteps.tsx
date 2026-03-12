@@ -643,133 +643,54 @@ export function MultiplierHandlesStepView({
   );
 }
 
-// ── CLOSING (Merged Logic & UI) ─────────────────────────────
+// ── CLOSING (Modo Auto-Active) ─────────────────────────────
 
-export function ClosingStepView({
-  queuePosition, referralCode, positionBoost,
-}: {
-  queuePosition: number;
-  referralCode: string;
-  positionBoost: number;
-}) {
-  const [copied, setCopied] = useState(false);
-  const referralLink = `https://t.me/BrutalDropBot/jugar?startapp=ref_${referralCode}`;
-  const whatsappMsg = `Metete en BRUTAL. Es una app donde respondes preguntas anonimas y ganas cash real. Usa mi link y salto la fila: ${referralLink}`;
-  const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(whatsappMsg)}`;
-
-  const effectivePosition = Math.max(1, queuePosition - positionBoost);
-
-  const handleCopy = () => {
-    try {
-      navigator.clipboard.writeText(referralLink);
-      setCopied(true);
-      hapticMedium();
-      setTimeout(() => setCopied(false), 2000);
-    } catch (_e) { /* clipboard unavailable */ }
+export function ClosingStepView() {
+  const handlePlay = () => {
+    const tg = (window as any).Telegram?.WebApp;
+    if (tg) {
+      tg.close(); // Cierra la mini app para que vean el mensaje del bot
+    }
   };
 
   return (
     <div className="flex flex-col flex-1 justify-center items-center px-6 py-6">
       {/* Title */}
       <h1
-        className="font-[var(--skin-font-display)] text-[29px] uppercase text-center mb-6"
+        className="font-[var(--skin-font-display)] text-[34px] uppercase text-center mb-6"
         style={{ color: "var(--dynamic-fg, #fff)" }}
       >
-        Estas en la fila
+        ¡Estás Adentro!
       </h1>
 
-      {/* Position card — duotone fg bg, duotone bg text */}
-      <div
-        className="w-full max-w-[332px] rounded-[12px] px-5 pt-5 pb-4 mb-6"
-        style={{ backgroundColor: "var(--dynamic-fg, #fff)" }}
-      >
-        {/* Row: label + badge */}
-        <div className="flex items-center justify-between mb-2">
-          <span
-            className="font-[var(--skin-font-mono)] font-semibold text-[19px]"
-            style={{ color: "var(--dynamic-bg, #000)" }}
-          >
-            Tu posición
-          </span>
-          <span
-            className="font-['Roboto'] font-bold text-[12px] px-2.5 py-1 rounded-[5px] tracking-tight"
-            style={{
-              backgroundColor: "var(--dynamic-bg, #000)",
-              color: "var(--dynamic-fg, #fff)",
-            }}
-          >
-            #{effectivePosition}
-          </span>
-        </div>
-
-        {/* Dashed separator */}
-        <div
-          className="w-full mb-3"
-          style={{
-            height: "0px",
-            borderTop: "1px dashed var(--dynamic-bg, #000)",
-            opacity: 0.3,
-          }}
-        />
-
-        {/* Boost info */}
-        {positionBoost > 0 && (
-          <p
-            className="font-['Fira_Code'] text-[14px]"
-            style={{ color: "var(--dynamic-bg, #000)" }}
-          >
-            Saltaste {positionBoost} lugares por completar tu perfil
-          </p>
-        )}
-      </div>
-
       {/* Description */}
-      <div className="w-full max-w-[332px] mb-8">
+      <div className="w-full max-w-[332px] mb-12 text-center">
         <p
-          className="font-['Roboto'] text-[16px] leading-[22px]"
+          className="font-['Roboto'] text-[18px] leading-[24px] mb-4 font-bold"
           style={{ color: "var(--dynamic-fg, #fff)" }}
         >
-          Te vamos a escribir por whatsapp y telegram cuando hayamos procesado tu perfil.
+          Tu perfil fue aprobado automáticamente.
         </p>
         <p
-          className="font-['Roboto'] text-[16px] leading-[22px] mt-4"
-          style={{ color: "var(--dynamic-fg, #fff)" }}
+          className="font-['Roboto'] text-[16px] leading-[22px]"
+          style={{ color: "var(--dynamic-fg, #fff)", opacity: 0.8 }}
         >
-          Mientras tanto, cada amigo que invite y sea aceptado te sube 100 posiciones.
+          Cerrá esta pantalla y mirá el chat. Ya tenés tu primer Drop esperándote para ganar cash y tickets.
         </p>
       </div>
 
       {/* Buttons */}
       <div className="w-full max-w-[332px] mt-auto flex flex-col gap-3 mb-4">
-        <a
-          href={whatsappUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="w-full h-[64px] rounded-[8px] flex items-center justify-center active:scale-[0.98] transition-transform"
+        <button
+          onClick={handlePlay}
+          className="w-full h-[64px] rounded-[12px] flex items-center justify-center active:scale-[0.98] transition-transform shadow-lg"
           style={{ backgroundColor: "var(--dynamic-fg, #fff)" }}
-          onClick={() => hapticMedium()}
         >
           <span
-            className="font-['Roboto'] font-semibold text-[21px]"
+            className="font-['Roboto'] font-bold text-[21px]"
             style={{ color: "var(--dynamic-bg, #000)" }}
           >
-            Invitar por whatsapp
-          </span>
-        </a>
-
-        <button
-          onClick={handleCopy}
-          className="w-full h-[64px] rounded-[8px] flex items-center justify-center active:scale-[0.98] transition-transform border-2"
-          style={{
-            borderColor: "var(--dynamic-fg, #fff)",
-            backgroundColor: "transparent",
-          }}
-        >
-          <span
-            className="font-['Roboto'] font-semibold text-[21px]"
-            style={{ color: "var(--dynamic-fg, #fff)" }}
-          >
-            {copied ? "Copiado ✓" : "Copiar mi link"}
+            Ir a Jugar
           </span>
         </button>
       </div>
