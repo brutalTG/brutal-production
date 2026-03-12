@@ -643,14 +643,12 @@ export function MultiplierHandlesStepView({
   );
 }
 
-// ── CLOSING (Modo Auto-Active) ─────────────────────────────
+// ── CLOSING (Modo Auto-Active y Jugar Directo) ─────────────────────────────
 
 export function ClosingStepView() {
   const handlePlay = () => {
-    const tg = (window as any).Telegram?.WebApp;
-    if (tg) {
-      tg.close(); // Cierra la mini app para que vean el mensaje del bot
-    }
+    // En lugar de cerrar la app, lo mandamos directo a la raíz (el juego)
+    window.location.href = "/";
   };
 
   return (
@@ -675,7 +673,7 @@ export function ClosingStepView() {
           className="font-['Roboto'] text-[16px] leading-[22px]"
           style={{ color: "var(--dynamic-fg, #fff)", opacity: 0.8 }}
         >
-          Cerrá esta pantalla y mirá el chat. Ya tenés tu primer Drop esperándote para ganar cash y tickets.
+          Ya tenés tu primer Drop esperándote para ganar cash y tickets.
         </p>
       </div>
 
@@ -690,7 +688,7 @@ export function ClosingStepView() {
             className="font-['Roboto'] font-bold text-[21px]"
             style={{ color: "var(--dynamic-bg, #000)" }}
           >
-            Ir a Jugar
+            Jugar Drop
           </span>
         </button>
       </div>
