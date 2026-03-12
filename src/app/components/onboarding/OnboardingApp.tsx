@@ -227,12 +227,12 @@ export default function OnboardingApp() {
   const isQuestionStep = currentQuestionIndex >= 0;
 
   const advance = useCallback((id: string, value: any) => {
-    // NUEVO: Validación estricta en el frontend para el teléfono
-    if (id === "phone") {
+    // VALIDACIÓN: Solo revisamos si es un teléfono manual. Si viene de Telegram, lo dejamos pasar.
+    if (id === "phone" && value !== "telegram_verified") {
       const clean = String(value).replace(/\D/g, "");
       if (clean.length < 10) {
         alert("Por favor ingresá un número de celular válido con código de área (ej: 11 2345 6789).");
-        return; // ¡Cortamos acá y no lo dejamos avanzar!
+        return; // Cortamos acá
       }
     }
 
