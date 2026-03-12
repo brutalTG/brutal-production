@@ -769,17 +769,17 @@ app.post("/apply", async (c) => {
   const compassChoicesFromBody = body.compass_choices || null;
   const brandChoices = body.brand_choices || null;
 
-  if (!phone) return c.json({ ok: false, error: "Phone required" }, 400);
+  // EL SEGURO ANTIBALAS FINAL
+  if (!telegramUserId && (!phone || phone === "telegram_verified")) {
+    return c.json({ ok: false, error: "Missing Telegram ID or valid Phone" }, 400);
+  }
   
   let normalPhone = null;
-  if (phone !== "telegram_verified") {
+  if (phone && phone !== "telegram_verified") {
     const clean = phone.replace(/\D/g, "");
-    if (!clean.startsWith("54") || clean.length < 10 || clean.length > 13) {
-      return c.json({ ok: false, error: "Invalid phone" }, 400);
+    if (clean.length >= 10 && clean.length <= 13) {
+       normalPhone = "+" + (clean.startsWith("54") ? clean : "549" + clean.replace(/^9?/, ""));
     }
-    normalPhone = "+" + clean;
-    const { data: exists } = await db().from("nodes").select("node_id").eq("phone", normalPhone).limit(1);
-    if (exists?.[0]) return c.json({ ok: false, error: "Phone already registered" }, 409);
   }
 
   let referredBy = null;
@@ -787,9 +787,6 @@ app.post("/apply", async (c) => {
     const { data: ref } = await db().from("nodes").select("node_id").eq("referral_code", referredByCode).limit(1);
     if (ref?.[0]) referredBy = ref[0].node_id;
   }
-
-  const isComplete = nickname && age && gender;
-  const status = isComplete ? "pending" : "incomplete";
 
   let existingNodeId = null;
   if (telegramUserId) {
@@ -799,26 +796,38 @@ app.post("/apply", async (c) => {
 
   let newNode;
   if (existingNodeId) {
-    const { data: updatedNode, error: nodeErr } = await db().from("nodes").update({
-      nickname: nickname || null, age: age || null, gender: gender || null,
-      location_province: locationProvince, location_city: locationCity,
-      phone_brand: phoneBrand || null, compass_vector: compassVector,
-      compass_archetype: compassArchetype, brand_vector: brandVector,
-      handles: handles || null, referred_by: referredBy, status,
-      onboarding_step: isComplete ? 99 : 1,
+    // FIX: Forzamos el estado a pending porque si llegó acá, completó el flujo.
+    // Además, solo actualizamos los campos que NO vengan vacíos por la reanudación.
+    const updateData: any = {
+      status: "pending",
+      onboarding_step: 99,
       ...tgFields
-    }).eq("node_id", existingNodeId).select("node_id, referral_code, status").single();
+    };
+    if (nickname) updateData.nickname = nickname;
+    if (age) updateData.age = age;
+    if (gender) updateData.gender = gender;
+    if (locationProvince) updateData.location_province = locationProvince;
+    if (locationCity) updateData.location_city = locationCity;
+    if (phoneBrand) updateData.phone_brand = phoneBrand;
+    if (compassVector) updateData.compass_vector = compassVector;
+    if (compassArchetype) updateData.compass_archetype = compassArchetype;
+    if (brandVector) updateData.brand_vector = brandVector;
+    if (handles && Object.keys(handles).length > 0) updateData.handles = handles;
+    if (referredBy) updateData.referred_by = referredBy;
+
+    const { data: updatedNode, error: nodeErr } = await db().from("nodes").update(updateData).eq("node_id", existingNodeId).select("node_id, referral_code, status").single();
     
     if (nodeErr) return c.json({ ok: false, error: nodeErr.message }, 500);
     newNode = updatedNode;
   } else {
+    // Flujo normal (el usuario cargó a mano o el frontend llegó antes que el webhook)
     const { data: insertedNode, error: nodeErr } = await db().from("nodes").insert({
       phone: normalPhone, nickname: nickname || null, age: age || null, gender: gender || null,
       location_province: locationProvince, location_city: locationCity,
       phone_brand: phoneBrand || null, compass_vector: compassVector,
       compass_archetype: compassArchetype, brand_vector: brandVector,
-      handles: handles || null, referred_by: referredBy, status,
-      onboarding_step: isComplete ? 99 : 1,
+      handles: handles || null, referred_by: referredBy, 
+      status: "pending", onboarding_step: 99,
       ...tgFields
     }).select("node_id, referral_code, status").single();
     
@@ -840,6 +849,7 @@ app.post("/apply", async (c) => {
     }
   }
 
+  // FIX: Usamos UPSERT para evitar crasheos si las respuestas ya estaban guardadas
   if (compassRaw && typeof compassRaw === "object") {
     const { data: config } = await db().from("compass_config").select("rafagas").limit(1).single();
     const rafagaList = config?.rafagas || [];
@@ -862,10 +872,10 @@ app.post("/apply", async (c) => {
       }
     }
     if (rows.length > 0) {
-      await db().from("node_compass_choices").insert(rows);
+      await db().from("node_compass_choices").upsert(rows);
     }
   } else if (compassChoicesFromBody?.length) {
-    await db().from("node_compass_choices").insert(
+    await db().from("node_compass_choices").upsert(
       compassChoicesFromBody.map((ch: any) => ({ node_id: newNode.node_id, rafaga_index: ch.rafaga_index,
         pair_index: ch.pair_index, emoji_left: ch.emoji_left || "", emoji_right: ch.emoji_right || "",
         chosen: ch.chosen_emoji || ch.chosen || "", latency_ms: ch.latency_ms }))
@@ -873,7 +883,7 @@ app.post("/apply", async (c) => {
   }
 
   if (brandChoices?.length) {
-    await db().from("node_brand_choices").insert(
+    await db().from("node_brand_choices").upsert(
       brandChoices.map((ch: any) => ({ node_id: newNode.node_id, pair_id: ch.pair_id || `brand_${ch.pair_index}`,
         brand_a: ch.brand_a || "", brand_b: ch.brand_b || "",
         chosen: ch.chosen_brand || ch.chosen || "", latency_ms: ch.latency_ms }))
@@ -1157,8 +1167,7 @@ app.put("/apply/:nodeId/complete", async (c) => {
   }
 
   return c.json({ ok: true, nodeId, referralCode: updated?.referral_code || null, status: "pending" });
-});
-// ============================================================================
+});// ============================================================================
 // USER PROFILE and REWARDS
 // ============================================================================
 
