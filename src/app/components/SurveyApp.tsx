@@ -56,40 +56,46 @@ function useNodeGate() {
     if (checkedRef.current) return;
     checkedRef.current = true;
 
-    // 1. Check preview mode (Panel de Admin)
-    const params = new URLSearchParams(window.location.search);
-    if (params.has("preview")) {
-      console.log("[BRUTAL] Preview mode — skipping node gate");
-      setStatus("active");
-      return;
-    }
+    async function checkGate() {
+      // 1. Forzamos a que Telegram expanda la app a pantalla completa (saca el half-screen)
+      try { (window as any).Telegram?.WebApp?.expand?.(); } catch(e) {}
 
-    // 2. Si NO es preview, EXIGIMOS que esté en Telegram
-    const telegramUserId = getTelegramUserId();
-    if (!telegramUserId) {
-      console.log("[BRUTAL] Fuera de Telegram — Redirigiendo al bot automáticamente");
-      
-      // Acá está la magia de la redirección automática:
-      window.location.href = "https://t.me/BrutalDropBot"; // ¡CAMBIÁ ESTO POR EL LINK REAL DE TU BOT!
-      
-      // Lo dejamos en "loading" para que la pantalla se quede cargando ese microsegundo antes de saltar a Telegram
-      setStatus("loading"); 
-      return;
-    }
+      // 2. Check preview mode (Panel de Admin)
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("preview")) {
+        console.log("[BRUTAL] Preview mode — skipping node gate");
+        setStatus("active");
+        return;
+      }
 
-    // Get Telegram initData for auth
-    const initData = (window as any).Telegram?.WebApp?.initData || "";
+      // 3. SMART POLLING: Le damos hasta 1.5 segundos a Telegram para que inyecte el ID
+      let telegramUserId = getTelegramUserId();
+      let retries = 0;
+      while (!telegramUserId && retries < 15) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        telegramUserId = getTelegramUserId();
+        retries++;
+      }
 
-    // Single gate call replaces old /node-status + /check-drop-access flow
-    fetch("/gate", {
-      headers: initData ? { "X-Telegram-Init-Data": initData } : {},
-    })
-      .then((r) => r.json())
-      .then((data) => {
+      // 4. Si de verdad no está en Telegram (ej: abrió el link en Safari)
+      if (!telegramUserId) {
+        console.log("[BRUTAL] Fuera de Telegram — Redirigiendo al bot automáticamente");
+        window.location.href = "https://t.me/BrutalDropBot"; 
+        return; // Se queda en loading porque la página va a saltar al bot
+      }
+
+      const initData = (window as any).Telegram?.WebApp?.initData || "";
+
+      // 5. Consultamos al Backend (Gate)
+      try {
+        const r = await fetch("/gate", {
+          headers: initData ? { "X-Telegram-Init-Data": initData } : {},
+        });
+        const data = await r.json();
+        
         console.log(`[BRUTAL] Gate response for ${telegramUserId}:`, data);
         setNickname(data.nickname || null);
 
-        // Map server statuses to our NodeStatus type
         switch (data.status) {
           case "granted":
             setStatus("active");
@@ -98,31 +104,25 @@ function useNodeGate() {
             setStatus("not_found");
             break;
           case "denied":
-            // Could be pending, blocked, segment_denied — check reason
-            if (data.reason === "not-in-segment") {
-              setStatus("segment_denied");
-            } else if (data.reason === "blocked") {
-              setStatus("blocked");
-            } else if (data.reason === "pending") {
-              setStatus("pending");
-            } else {
-              setStatus("blocked");
-            }
+            if (data.reason === "not-in-segment") setStatus("segment_denied");
+            else if (data.reason === "blocked") setStatus("blocked");
+            else if (data.reason === "pending") setStatus("pending");
+            else setStatus("blocked");
             break;
           case "completed":
             setStatus("completed");
             break;
           default:
-            // Unknown status — allow access (fail open)
             console.warn("[BRUTAL] Unknown gate status:", data.status);
             setStatus("active");
         }
-      })
-      .catch((err) => {
+      } catch (err) {
         console.error("[BRUTAL] Gate check failed:", err);
-        // On error, allow access to not block users
         setStatus("active");
-      });
+      }
+    }
+
+    checkGate();
   }, []);
 
   return { status, nickname };
