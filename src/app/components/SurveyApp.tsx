@@ -308,6 +308,20 @@ export default function SurveyApp() {
 // ============================================================
 
 function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
+  // --- ESCUDO GLOBAL ANTI-CRASH (Fix: Cannot read properties of undefined reading 'trigger') ---
+  useEffect(() => {
+    const tg = (window as any).Telegram?.WebApp;
+    if (tg && !tg.HapticFeedback) {
+      // Si el objeto de vibración no está listo, creamos un simulador vacío
+      // para que las ráfagas no exploten al intentar usarlo.
+      tg.HapticFeedback = {
+        impactOccurred: () => {},
+        notificationOccurred: () => {},
+        selectionChanged: () => {},
+      };
+    }
+  }, []);
+
   // --- Derived from drop (memoized) ---
   const questions: Question[] = drop.questions;
   const totalQuestions = questions.length;
@@ -386,6 +400,8 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
     window.addEventListener("beforeunload", onUnload);
     return () => { document.removeEventListener("visibilitychange", onHidden); window.removeEventListener("beforeunload", onUnload); };
   }, [screen, questionIndex]);
+
+  // ... (el resto del componente sigue igual)
 
   // ============================================================
   // Per-card upload: when questionIndex changes, upload PREVIOUS card's answer
