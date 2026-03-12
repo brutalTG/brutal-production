@@ -928,8 +928,9 @@ app.post("/apply/init", async (c) => {
   const initData = c.req.header("X-Telegram-Init-Data");
   const tgFields = extractTgFields(initData);
   
-  // Extraemos TODO lo que manda el checkpoint silencioso
-  const { phone, telegram_user_id, referred_by_code, nickname, age, gender, location, phoneBrand } = body;
+  // FIX 1: Atajamos los dos formatos (el de la web y el del bot)
+  const tgId = body.telegram_user_id || body.telegramUserId;
+  const { phone, referred_by_code, nickname, age, gender, location, phoneBrand } = body;
   
   if (!phone) return c.json({ ok: false, error: "Phone required" }, 400);
   
@@ -949,9 +950,9 @@ app.post("/apply/init", async (c) => {
   }
 
   let existing = null;
-  if (telegram_user_id) {
+  if (tgId) {
      const { data: ch } = await db().from("node_channels")
-       .select("node_id").eq("channel", "telegram").eq("channel_identifier", String(telegram_user_id)).single();
+       .select("node_id").eq("channel", "telegram").eq("channel_identifier", String(tgId)).single();
      if (ch) {
        const { data: node } = await db().from("nodes").select("node_id, status, onboarding_step, referral_code, phone").eq("node_id", ch.node_id).single();
        existing = node;
@@ -963,6 +964,7 @@ app.post("/apply/init", async (c) => {
     existing = nodeByPhone;
   }
 
+  // SI EL NODO YA EXISTE (Lo normal si entró por el bot)
   if (existing) {
     const updates: any = { ...tgFields };
     
@@ -993,14 +995,25 @@ app.post("/apply/init", async (c) => {
     });
   }
 
+  // SI NO EXISTE (Crea uno nuevo)
   let referredBy = null;
   if (referred_by_code) {
     const { data: ref } = await db().from("nodes").select("node_id").eq("referral_code", referred_by_code).single();
     if (ref) referredBy = ref.node_id;
   }
 
+  // FIX 2: Guardamos todos los datos duros si se crea un nodo desde cero en el checkpoint
   const { data: newNode, error: nodeErr } = await db().from("nodes").insert({
-    phone: normalPhone, status: "incomplete", onboarding_step: 1, referred_by: referredBy, ...tgFields
+    phone: normalPhone, 
+    status: "incomplete", 
+    onboarding_step: nickname ? 10 : 1, 
+    referred_by: referredBy, 
+    nickname: nickname || null,
+    age: age || null,
+    gender: gender || null,
+    location_province: location || null,
+    phone_brand: phoneBrand || null,
+    ...tgFields
   }).select("node_id, referral_code, status, onboarding_step").single();
 
   if (nodeErr) return c.json({ ok: false, error: nodeErr.message }, 500);
@@ -1013,17 +1026,17 @@ app.post("/apply/init", async (c) => {
 
   await anonId(newNode.node_id);
 
-  if (telegram_user_id) {
+  if (tgId) {
     await db().from("node_channels").upsert({
       node_id: newNode.node_id, channel: "telegram",
-      channel_identifier: String(telegram_user_id), is_primary: true,
+      channel_identifier: String(tgId), is_primary: true,
     }, { onConflict: "channel,channel_identifier" });
   }
 
   return c.json({
     ok: true, resumed: false,
     nodeId: newNode.node_id, referralCode: newNode.referral_code,
-    onboardingStep: 1, status: "incomplete",
+    onboardingStep: nickname ? 10 : 1, status: "incomplete",
   }, 201);
 });
 
