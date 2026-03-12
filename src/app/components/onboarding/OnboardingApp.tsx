@@ -13,7 +13,6 @@ import type { OnboardingStep, MultiplierHandlesStep, CompassRafagaStep } from ".
 import type { CompassRafaga, PairAnswer } from "./compass-types";
 import { DEFAULT_RAFAGAS } from "./compass-data";
 import { computeCompassVector, findArchetype } from "./compass-engine";
-// API calls go to same-origin Hono server
 import { RafagaEmojiQuestion } from "../rafaga-emoji-question";
 import type { RafagaEmojiItem } from "../rafaga-emoji-question";
 import { CompassReveal } from "./CompassReveal";
@@ -81,24 +80,29 @@ export default function OnboardingApp() {
   const [duotoneColors, setDuotoneColors] = useState({ bg: "#000000", fg: "#FFFFFF" });
   const firstStepDone = useRef(false);
 
-  // --- LÓGICA DE REANUDACIÓN ---
+  // --- LÓGICA DE REANUDACIÓN INTELIGENTE ---
   const [isInitializing, setIsInitializing] = useState(true);
+  const checkpointSaved = useRef(false);
 
   useEffect(() => {
     async function checkExistingProgress() {
       try {
-        // Le damos 100ms a Telegram para que inyecte las variables de entorno
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // SMART POLLING: Esperamos hasta 1.5 segundos a que Telegram inyecte el ID
+        let tgUserId = getTelegramUserId();
+        let retries = 0;
+        while (!tgUserId && retries < 15) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          tgUserId = getTelegramUserId();
+          retries++;
+        }
         
-        const initData = (window as any).Telegram?.WebApp?.initData || "";
-        const tgUserId = getTelegramUserId();
-        
-        // CANDADO: Si no detectamos ID de Telegram, no disparamos la creación de fantasmas
         if (!tgUserId) {
-          console.warn("[BRUTAL] No se detectó ID de Telegram. Omitiendo reanudación.");
+          console.warn("[BRUTAL] No se detectó ID de Telegram tras 1.5s. Arrancando de cero.");
           setIsInitializing(false);
           return;
         }
+        
+        const initData = (window as any).Telegram?.WebApp?.initData || "";
         
         // Consultamos al backend en qué estado está el usuario
         const res = await fetch("/apply/init", {
@@ -113,10 +117,14 @@ export default function OnboardingApp() {
         const data = await res.json();
         
         if (data.ok && data.resumed && data.onboardingStep >= 10) {
-          const rafagaStartIndex = ONBOARDING_STEPS.findIndex(step => step.phase === "compass");
-          if (rafagaStartIndex !== -1) {
-            setStepIndex(rafagaStartIndex);
-            checkpointSaved.current = true; 
+          // Buscamos la pantalla de transición (la pantalla negra antes de las ráfagas)
+          const resumeIndex = ONBOARDING_STEPS.findIndex(step => step.phase === "transition");
+          
+          if (resumeIndex !== -1) {
+            console.log(`[BRUTAL] 🔄 Usuario reanudado. Saltando al paso ${resumeIndex}`);
+            setStepIndex(resumeIndex);
+            checkpointSaved.current = true; // Ya no necesitamos guardar el checkpoint
+            firstStepDone.current = true;
           }
         }
       } catch (err) {
@@ -132,19 +140,15 @@ export default function OnboardingApp() {
   // Compass rafagas — fetched from server, fallback to defaults
   const [rafagas, setRafagas] = useState<CompassRafaga[]>(DEFAULT_RAFAGAS);
 
-  // Fetch compass config from panel builder
+  // Fetch compass config
   useEffect(() => {
-    const API_BASE = "";  // Same origin
+    const API_BASE = "";
     fetch(`${API_BASE}/compass-config`, {
-      headers: {
-        "Content-Type": "application/json",
-        // Public endpoint, no auth needed
-      },
+      headers: { "Content-Type": "application/json" },
     })
       .then((r) => r.json())
       .then((data) => {
         if (data.rafagas && Array.isArray(data.rafagas) && data.rafagas.length > 0) {
-          console.log(`[ONBOARDING] Loaded compass config from server: ${data.rafagas.length} rafagas`);
           setRafagas(data.rafagas);
         }
       })
@@ -185,12 +189,10 @@ export default function OnboardingApp() {
   const currentStep = ONBOARDING_STEPS[stepIndex];
   const totalSteps = ONBOARDING_STEPS.length;
 
-  // --- CHECKPOINT DE DATOS DUROS ---
-  const checkpointSaved = useRef(false);
-
+  // --- TRIGGER DEL CHECKPOINT DE DATOS DUROS ---
   useEffect(() => {
-    // Si el usuario llega a la fase "compass" (ráfagas) y no guardamos el checkpoint todavía
-    if (currentStep && currentStep.phase === "compass" && !checkpointSaved.current) {
+    // Lo disparamos apenas toca la pantalla de Transición (así evitamos que pierda datos si cierra la app en ese texto negro)
+    if (currentStep && (currentStep.phase === "transition" || currentStep.phase === "compass") && !checkpointSaved.current) {
       checkpointSaved.current = true;
       
       const saveHardDataCheckpoint = async () => {
@@ -198,7 +200,6 @@ export default function OnboardingApp() {
           const initData = (window as any).Telegram?.WebApp?.initData || "";
           const tgUserId = getTelegramUserId();
           
-          // Apuntamos a /apply/init para NO disparar la finalización del embudo
           await fetch("/apply/init", {
             method: "POST",
             headers: {
@@ -215,7 +216,7 @@ export default function OnboardingApp() {
               phoneBrand: answers.phone_brand || answers.phoneBrand
             })
           });
-          console.log("[BRUTAL] 💾 Checkpoint de datos duros guardado en Supabase");
+          console.log("[BRUTAL] 💾 Checkpoint de datos duros guardado");
         } catch (err) {
           console.error("[BRUTAL] ❌ Falló el guardado del checkpoint:", err);
         }
@@ -224,9 +225,8 @@ export default function OnboardingApp() {
       saveHardDataCheckpoint();
     }
   }, [currentStep, answers]);
-  // ------------------------------------
 
-  // Count progress (only A + compass steps for the bar)
+  // Count progress
   const questionSteps = ONBOARDING_STEPS.filter(
     (s) => s.phase === "A" || s.phase === "compass"
   );
@@ -234,15 +234,6 @@ export default function OnboardingApp() {
   const isQuestionStep = currentQuestionIndex >= 0;
 
   const advance = useCallback((id: string, value: any) => {
-    // VALIDACIÓN: Solo revisamos si es un teléfono manual. Si viene de Telegram, lo dejamos pasar.
-    if (id === "phone" && value !== "telegram_verified") {
-      const clean = String(value).replace(/\D/g, "");
-      if (clean.length < 10) {
-        alert("Por favor ingresá un número de celular válido con código de área (ej: 11 2345 6789).");
-        return; // Cortamos acá
-      }
-    }
-
     firstStepDone.current = true;
     setAnswers((prev) => ({ ...prev, [id]: value }));
     hapticMedium();
@@ -259,12 +250,10 @@ export default function OnboardingApp() {
     }
   }, [stepIndex, totalSteps]);
 
-  // Handle compass rafaga completion
   const handleRafagaComplete = useCallback((rafagaIndex: number, rawAnswers: (string | null)[]) => {
     const rafaga = rafagas[rafagaIndex];
     if (!rafaga) return;
 
-    // Map raw emoji answers to PairAnswer format ("A", "B", or null)
     const mapped: PairAnswer[] = rafaga.pairs.map((pair, i) => {
       const raw = rawAnswers[i];
       if (raw === null) return null;
@@ -276,18 +265,16 @@ export default function OnboardingApp() {
     setCompassAnswers((prev) => ({ ...prev, [rafaga.id]: mapped }));
     setPositionBoost((prev) => prev + BOOST_PER_RAFAGA);
 
-    // Change colors between rafagas
     const pair = getNextDuotonePair();
     setDuotoneColors({ bg: pair.bg, fg: pair.fg });
 
-    // Advance to next step
     firstStepDone.current = true;
     if (stepIndex < totalSteps - 1) {
       setStepIndex((i) => i + 1);
     }
   }, [stepIndex, totalSteps, rafagas]);
 
-  // Submit application when reaching closing step
+  // Submit application
   useEffect(() => {
     if (currentStep && currentStep.type === "closing" && !submitResult && !submitting) {
       setSubmitting(true);
@@ -366,9 +353,6 @@ export default function OnboardingApp() {
     }
   }, [currentStep, submitResult, submitting, answers, positionBoost, compassResult, compassAnswers]);
 
-  // ── Pantallas protectoras y de carga ────────────────────────────────────────────
-  
-  // Mostrar pantalla de carga mientras verificamos si hay que reanudar
   if (isInitializing) {
     return (
       <div className="h-dvh flex flex-col justify-center items-center font-['Roboto'] bg-black text-white">
@@ -392,19 +376,14 @@ export default function OnboardingApp() {
     );
   }
 
-  // ── Render ────────────────────────────────────────────────
-
   const renderStep = () => {
     switch (currentStep.type) {
       case "intro":
         return <IntroStepView step={currentStep} onNext={advanceNoValue} />;
-
       case "phone":
         return <PhoneStepView step={currentStep} onNext={(val) => advance("phone", val)} />;
-
       case "text_input":
         return <TextInputStepView step={currentStep} onNext={(val) => advance(currentStep.id, val)} />;
-
       case "age_selector":
         return (
           <AgeSelectorStepView
@@ -413,48 +392,33 @@ export default function OnboardingApp() {
             onReject={(msg) => setAgeRejected(msg)}
           />
         );
-
       case "single_choice":
         return <SingleChoiceStepView step={currentStep} onNext={(val) => advance(currentStep.id, val)} />;
-
       case "nested_choice":
         return <NestedChoiceStepView step={currentStep} onNext={(val) => advance(currentStep.id, val)} />;
-
       case "multi_select":
         return <MultiSelectStepView step={currentStep} onNext={(val) => advance(currentStep.id, val)} />;
-
       case "scale":
         return <ScaleStepView step={currentStep} onNext={(val) => advance(currentStep.id, val)} />;
-
       case "free_text":
         return <FreeTextStepView step={currentStep} onNext={(val) => advance(currentStep.id, val)} />;
-
       case "transition":
         return <TransitionStepView step={currentStep} onNext={advanceNoValue} />;
-
       case "compass_rafaga": {
         const rafagaStep = currentStep as CompassRafagaStep;
         const rafaga = rafagas[rafagaStep.rafagaIndex];
         if (!rafaga) return null;
-
-        // Convert CompassPairs to RafagaEmojiItems
         const items: RafagaEmojiItem[] = rafaga.pairs.map((p) => ({
-          text: p.text,
-          optionA: p.optionA,
-          optionB: p.optionB,
+          text: p.text, optionA: p.optionA, optionB: p.optionB,
         }));
-
         return (
           <RafagaEmojiQuestion
-            key={`rafaga-${rafaga.id}`}
-            promptBold={rafaga.promptBold}
-            items={items}
+            key={`rafaga-${rafaga.id}`} promptBold={rafaga.promptBold} items={items}
             secondsPerItem={rafaga.secondsPerItem}
             onComplete={(rawAnswers) => handleRafagaComplete(rafagaStep.rafagaIndex, rawAnswers)}
           />
         );
       }
-
       case "compass_reveal": {
         if (!compassResult) {
           return (
@@ -466,24 +430,18 @@ export default function OnboardingApp() {
         }
         return (
           <CompassReveal
-            vector={compassResult.vector}
-            primary={compassResult.primary}
-            secondary={compassResult.secondary}
-            purity={compassResult.purity}
-            onContinue={advanceNoValue}
+            vector={compassResult.vector} primary={compassResult.primary}
+            secondary={compassResult.secondary} purity={compassResult.purity} onContinue={advanceNoValue}
           />
         );
       }
-
       case "multiplier_handles":
         return (
           <MultiplierHandlesStepView
-            step={currentStep}
-            positionBoost={positionBoost}
+            step={currentStep} positionBoost={positionBoost}
             onNext={(handles) => advance("multiplier_handles", handles)}
           />
         );
-
       case "closing":
         if (submitting || !submitResult) {
           return (
@@ -498,21 +456,17 @@ export default function OnboardingApp() {
         }
         return (
           <ClosingStepView
-            queuePosition={submitResult.queuePosition}
-            referralCode={submitResult.referralCode}
-            positionBoost={positionBoost}
+            queuePosition={submitResult.queuePosition} referralCode={submitResult.referralCode} positionBoost={positionBoost}
           />
         );
-
       default:
         return null;
     }
   };
 
-  // Steps that use full-bleed layout (no progress bar / header)
   const isFullBleed = currentStep.type === "intro" || currentStep.type === "transition"
     || currentStep.type === "closing" || currentStep.type === "compass_rafaga"
-    || currentStep.type === "compass_reveal" || currentStep.type === "multiplier_handles"; // Añadido multiplier_handles para mantener el diseño limpio de Figma Make
+    || currentStep.type === "compass_reveal" || currentStep.type === "multiplier_handles";
 
   return (
     <div
@@ -526,17 +480,13 @@ export default function OnboardingApp() {
           paddingBottom: "calc(var(--tg-safe-bottom, 0px) + 24px)",
         }}
       >
-        {/* Header — hidden on full bleed screens */}
         {!isFullBleed && (
           <>
-            {/* Progress Bar */}
             {isQuestionStep && (
               <div className="w-full mb-3">
                 <OnboardingProgressBar current={currentQuestionIndex} total={questionSteps.length} />
               </div>
             )}
-
-            {/* Brand */}
             <div className="flex items-center gap-2 mb-5">
               <div style={{ color: duotoneColors.fg }}>
                 <BrutalLogoSmall />
@@ -556,7 +506,6 @@ export default function OnboardingApp() {
           </>
         )}
 
-        {/* Step Content */}
         <div className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden">
           {renderStep()}
         </div>
