@@ -928,8 +928,18 @@ app.post("/apply/init", async (c) => {
   const initData = c.req.header("X-Telegram-Init-Data");
   const tgFields = extractTgFields(initData);
   
-  // FIX 1: Atajamos los dos formatos (el de la web y el del bot)
-  const tgId = body.telegram_user_id || body.telegramUserId;
+  // MAGIA ANTI-DUPLICADOS: Extraemos el ID directamente del token de seguridad de Telegram
+  let secureTgId = null;
+  if (initData) {
+    try {
+      const params = new URLSearchParams(initData);
+      const userStr = params.get("user");
+      if (userStr) secureTgId = JSON.parse(userStr).id;
+    } catch(e) {}
+  }
+  
+  // Usamos el ID seguro, o el que mandó el frontend por si acaso
+  const tgId = secureTgId || body.telegram_user_id || body.telegramUserId;
   const { phone, referred_by_code, nickname, age, gender, location, phoneBrand } = body;
   
   if (!phone) return c.json({ ok: false, error: "Phone required" }, 400);
@@ -938,10 +948,9 @@ app.post("/apply/init", async (c) => {
   if (phone !== "telegram_verified") {
     let clean = String(phone).replace(/\D/g, "");
     
-    // MAGIA: Auto-completar formato Argentina para no frustrar al usuario
-    if (clean.length === 10) clean = "549" + clean; // Ej: 1122334455 -> 5491122334455
-    else if (clean.length === 11 && clean.startsWith("9")) clean = "54" + clean; // Ej: 91122334455 -> 5491122334455
-    else if (clean.length === 12 && clean.startsWith("54")) clean = "549" + clean.substring(2); // Le faltó el 9
+    if (clean.length === 10) clean = "549" + clean; 
+    else if (clean.length === 11 && clean.startsWith("9")) clean = "54" + clean; 
+    else if (clean.length === 12 && clean.startsWith("54")) clean = "549" + clean.substring(2); 
     
     if (!clean.startsWith("54") || clean.length < 12 || clean.length > 13) {
       return c.json({ ok: false, error: "Teléfono inválido. Verificá el código de área." }, 400);
@@ -964,11 +973,10 @@ app.post("/apply/init", async (c) => {
     existing = nodeByPhone;
   }
 
-  // SI EL NODO YA EXISTE (Lo normal si entró por el bot)
+  // SI ENCUENTRA AL USUARIO (Actualiza y salva el Checkpoint)
   if (existing) {
     const updates: any = { ...tgFields };
     
-    // Si entró por el checkpoint, le actualizamos todo lo que mandó
     if (normalPhone && !existing.phone) updates.phone = normalPhone;
     if (nickname) updates.nickname = nickname;
     if (age) updates.age = age;
@@ -976,8 +984,7 @@ app.post("/apply/init", async (c) => {
     if (location) updates.location_province = location;
     if (phoneBrand) updates.phone_brand = phoneBrand;
 
-    // MAGIA: Si nos mandó nickname, es el checkpoint antes de las ráfagas.
-    // Marcamos el step en 10.
+    // Si mandó el nickname en el checkpoint, lo marcamos en paso 10 para reanudar luego
     if (nickname) {
       updates.onboarding_step = 10;
     }
@@ -985,8 +992,6 @@ app.post("/apply/init", async (c) => {
     if (Object.keys(updates).length > 0) {
       await db().from("nodes").update(updates).eq("node_id", existing.node_id);
     }
-    
-    // Retornamos el paso actualizado para que el frontend lo sepa
     return c.json({
       ok: true, resumed: true,
       nodeId: existing.node_id, referralCode: existing.referral_code,
@@ -995,14 +1000,13 @@ app.post("/apply/init", async (c) => {
     });
   }
 
-  // SI NO EXISTE (Crea uno nuevo)
+  // SI DE VERDAD ES NUEVO (Crea registro)
   let referredBy = null;
   if (referred_by_code) {
     const { data: ref } = await db().from("nodes").select("node_id").eq("referral_code", referred_by_code).single();
     if (ref) referredBy = ref.node_id;
   }
 
-  // FIX 2: Guardamos todos los datos duros si se crea un nodo desde cero en el checkpoint
   const { data: newNode, error: nodeErr } = await db().from("nodes").insert({
     phone: normalPhone, 
     status: "incomplete", 
@@ -1057,7 +1061,6 @@ app.put("/apply/:nodeId/step", async (c) => {
     if (step === "phone") {
       let clean = String(value).replace(/\D/g, "");
       
-      // La misma magia auto-formateadora acá por si entra por este endpoint
       if (clean.length === 10) clean = "549" + clean;
       else if (clean.length === 11 && clean.startsWith("9")) clean = "54" + clean;
       else if (clean.length === 12 && clean.startsWith("54")) clean = "549" + clean.substring(2);
@@ -1085,6 +1088,44 @@ app.put("/apply/:nodeId/step", async (c) => {
   return c.json({ ok: true, step, saved: true });
 });
 
+app.post("/apply/:nodeId/compass-rafaga", async (c) => {
+  const nodeId = c.req.param("nodeId");
+  const body = await c.req.json();
+  const { rafaga_index, choices } = body;
+  if (rafaga_index === undefined || !choices?.length) return c.json({ ok: false, error: "rafaga_index and choices required" }, 400);
+  const { data: node } = await db().from("nodes").select("node_id").eq("node_id", nodeId).single();
+  if (!node) return c.json({ ok: false, error: "Node not found" }, 404);
+  await db().from("node_compass_choices").delete().eq("node_id", nodeId).eq("rafaga_index", rafaga_index);
+  const rows = choices.map((ch: any) => ({
+    node_id: nodeId, rafaga_index, pair_index: ch.pair_index,
+    emoji_left: ch.emoji_left, emoji_right: ch.emoji_right, chosen: ch.chosen, latency_ms: ch.latency_ms || null,
+  }));
+  const { error } = await db().from("node_compass_choices").insert(rows);
+  if (error) return c.json({ ok: false, error: error.message }, 500);
+  await db().from("nodes").update({ onboarding_step: 20 + rafaga_index }).eq("node_id", nodeId);
+  return c.json({ ok: true, rafaga_index, saved: choices.length });
+});
+
+app.post("/apply/:nodeId/brand-rafaga", async (c) => {
+  const nodeId = c.req.param("nodeId");
+  const body = await c.req.json();
+  const { choices } = body;
+  if (!choices?.length) return c.json({ ok: false, error: "choices required" }, 400);
+  const { data: node } = await db().from("nodes").select("node_id").eq("node_id", nodeId).single();
+  if (!node) return c.json({ ok: false, error: "Node not found" }, 404);
+  await db().from("node_brand_choices").delete().eq("node_id", nodeId);
+  const rows = choices.map((ch: any) => ({
+    node_id: nodeId, pair_id: ch.pair_id, brand_a: ch.brand_a, brand_b: ch.brand_b,
+    chosen: ch.chosen, latency_ms: ch.latency_ms || null,
+  }));
+  const { error } = await db().from("node_brand_choices").insert(rows);
+  if (error) return c.json({ ok: false, error: error.message }, 500);
+  await db().from("nodes").update({ onboarding_step: 25 }).eq("node_id", nodeId);
+  return c.json({ ok: true, saved: choices.length });
+});
+
+app.put("/apply/:nodeId/complete", async (c) => {
+  const nodeId = c.req
 // ============================================================================
 // USER PROFILE and REWARDS
 // ============================================================================
