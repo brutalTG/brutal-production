@@ -631,10 +631,8 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
   }
 
   if (screen === "profile") {
-    // Buscamos el ID por el SDK o lo forzamos a leerlo directo de Telegram
     const tgUserId = getTelegramUserId() || (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
     
-    // En vez de patearlo al splash, si tarda unos milisegundos le mostramos un "Cargando"
     if (!tgUserId) { 
       return <div className="h-dvh flex items-center justify-center bg-black text-[#555]">Cargando perfil...</div>; 
     }
@@ -642,7 +640,7 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
     return (
       <ProfileScreen
         telegramUserId={tgUserId}
-        onBack={() => setScreen("splash")}
+        onBack={undefined} // <--- CAMBIADO: Quitamos el botón de volver
         onLeaderboard={() => setScreen("leaderboard")}
       />
     );
@@ -653,12 +651,12 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
     return (
       <LeaderboardScreen
         telegramUserId={tgUserId}
-        onBack={() => setScreen("splash")}
+        onBack={undefined} // <--- CAMBIADO: Quitamos el botón de volver
         onProfile={() => setScreen("profile")}
       />
     );
   }
-
+  
   // ====== QUESTION SCREEN ======
   if (screen !== "question" || !currentQuestion) return null;
 
