@@ -404,7 +404,7 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
   // ... (el resto del componente sigue igual)
 
   // ============================================================
-  // Per-card upload: when questionIndex changes, upload PREVIOUS card's answer
+  // Per-card upload: CORREGIDO para registrar el multiplicador real
   // ============================================================
   useEffect(() => {
     // Skip if we haven't answered anything yet
@@ -417,12 +417,15 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
       const prevQuestion = questions[prevIndex];
       if (prevAnswer && prevQuestion) {
         lastUploadedIndexRef.current = prevIndex;
-        // Fire-and-forget: don't await
-        uploadResponse(prevQuestion, prevIndex, prevAnswer, drop.id);
+        
+        // Enviamos el multiplicador actual (currentMultiplier) como 5to parámetro.
+        // Esto soluciona que en la DB aparezca el valor real (1.25, 1.5, etc) y no siempre 1.
+        uploadResponse(prevQuestion, prevIndex, prevAnswer, drop.id, currentMultiplier);
       }
     }
-  }, [questionIndex, questions, drop.id]);
-
+    // Agregamos 'currentMultiplier' aquí para que el efecto se actualice si el usuario activa un boost
+  }, [questionIndex, questions, drop.id, currentMultiplier]);
+  
   // --- Derived ---
   const currentQuestion = questionIndex < totalQuestions ? questions[questionIndex] : null;
 
@@ -586,22 +589,25 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
         onClaim={() => { closeMiniApp(); }}
         onClaimRewards={async () => {
           try {
-            // Ensure all responses + completion are saved first
             await waitForUpload();
-            // Then claim rewards on the server
             if (tgUserId) {
+              // MANDAMOS LOS REWARDS "LIMPIOS"
               const result = await claimRewards({
                 telegramUserId: tgUserId,
                 dropId: drop.id,
-                coins,
-                tickets,
-                finalTickets,
+                // Ponemos 0 en coins y tickets porque ya se sumaron 
+                // automáticamente pregunta por pregunta en el backend.
+                coins: 0, 
+                tickets: 0, 
+                // Mandamos el total de tickets multiplicados como "finalTickets"
+                // El backend debería usar esto para calcular el BONUS final.
+                finalTickets: Math.round(tickets * currentMultiplier),
+                multiplier: currentMultiplier,
               });
               console.log("[BRUTAL] Claim rewards result:", result);
               return result.ok;
             }
-            console.warn("[BRUTAL] No telegramUserId for claim — skipping server claim (preview mode)");
-            return true; // No user to credit, but let the UI animation proceed
+            return true;
           } catch (err) {
             console.error("[BRUTAL] Claim rewards error:", err);
             return false;
