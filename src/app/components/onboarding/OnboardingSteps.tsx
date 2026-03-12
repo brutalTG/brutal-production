@@ -72,36 +72,19 @@ export function PhoneStepView({ step, onNext }: { step: PhoneStep; onNext: (val:
         }
       });
     } else {
-      // Fallback para entornos donde no hay SDK de Telegram (web normal)
+      // Fallback para entornos donde no hay SDK de Telegram
       alert("Por favor, abrí esta app desde la versión más reciente de Telegram.");
     }
   };
 
   return (
-    <div className="flex flex-col items-center justify-center flex-1 h-full px-4 text-center mt-12">
-      <h1 
-        className="font-['Oswald'] font-bold text-[32px] leading-tight mb-4 uppercase"
-        style={{ color: "var(--dynamic-fg, #fff)" }}
-      >
-        {step.prompt || "Tu número de celular. El único dato personal que pedimos."}
-      </h1>
-      
-      {step.description && (
-        <p className="font-['Roboto'] text-[16px] opacity-80 mb-10" style={{ color: "var(--dynamic-fg, #fff)" }}>
-          {step.description}
-        </p>
-      )}
-
-      <button
-        onClick={handleTelegramContact}
-        className="w-full py-4 rounded-xl font-bold font-['Roboto'] text-[18px] transition-transform active:scale-95 shadow-lg mt-auto mb-8"
-        style={{ 
-          backgroundColor: "var(--dynamic-fg, #fff)", 
-          color: "var(--dynamic-bg, #000)" 
-        }}
-      >
-        Continuar con Telegram
-      </button>
+    <div className="flex flex-col flex-1">
+      <DuotoneCard>
+        <CardTitle size="md">{step.copy || "Tu número de celular.\nEl único dato personal que pedimos."}</CardTitle>
+        <div className="w-full mt-4">
+          <ActionButton label="Continuar con Telegram" onClick={handleTelegramContact} />
+        </div>
+      </DuotoneCard>
     </div>
   );
 }
