@@ -87,8 +87,18 @@ export default function OnboardingApp() {
   useEffect(() => {
     async function checkExistingProgress() {
       try {
+        // Le damos 100ms a Telegram para que inyecte las variables de entorno
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
         const initData = (window as any).Telegram?.WebApp?.initData || "";
         const tgUserId = getTelegramUserId();
+        
+        // CANDADO: Si no detectamos ID de Telegram, no disparamos la creación de fantasmas
+        if (!tgUserId) {
+          console.warn("[BRUTAL] No se detectó ID de Telegram. Omitiendo reanudación.");
+          setIsInitializing(false);
+          return;
+        }
         
         // Consultamos al backend en qué estado está el usuario
         const res = await fetch("/apply/init", {
@@ -103,13 +113,10 @@ export default function OnboardingApp() {
         const data = await res.json();
         
         if (data.ok && data.resumed && data.onboardingStep >= 10) {
-          // Buscamos cuál es el índice de la primera ráfaga (fase compass)
           const rafagaStartIndex = ONBOARDING_STEPS.findIndex(step => step.phase === "compass");
-          
           if (rafagaStartIndex !== -1) {
-            console.log(`[BRUTAL] 🔄 Usuario reanudado. Saltando al paso ${rafagaStartIndex} (Ráfagas)`);
             setStepIndex(rafagaStartIndex);
-            checkpointSaved.current = true; // No queremos que dispare el checkpoint de nuevo
+            checkpointSaved.current = true; 
           }
         }
       } catch (err) {
