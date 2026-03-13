@@ -3,7 +3,7 @@
 // ============================================================
 // Architecture (3-call lifecycle + notify):
 //   1. serverStartSession(dropId) → POST /sessions/start → session_id
-//   2. uploadResponse(question, index, answer, dropId) → POST /responses (per-card, immediate)
+//   2. uploadResponse(question, index, answer, dropId, currentMultiplier) → POST /responses (per-card, immediate)
 //   3. completeSession({ archetype_result, bic_scores }) → POST /sessions/complete
 //   4. notifyDropComplete({ total_cash, total_tickets, multiplier }) → POST /sessions/notify
 //      (called when user taps "Cerrar" after claim animation — triggers bot message)
@@ -24,7 +24,7 @@ let _sessionId: string | null = null;
 let _dropId: string | null = null;
 
 /** Offline queue — responses that couldn't be sent yet */
-const _offlineQueue: Array<{ question: Question; index: number; answer: UserAnswer; dropId: string }> = [];
+const _offlineQueue: Array<{ question: Question; index: number; answer: UserAnswer; dropId: string; currentMultiplier: number }> = [];
 
 /** Track the completeSession promise so the UI can await it */
 let _completionPromise: Promise<boolean> | null = null;
@@ -85,7 +85,7 @@ async function fetchWithRetry(
 /**
  * Map UserAnswer fields to the flat fields expected by POST /responses.
  * Server expects: choice_index, slider_value, ranking_result, rafaga_choices,
- *   text_response, latency_ms, raw_response
+ * text_response, latency_ms, raw_response
  */
 function answerToPayloadFields(answer: UserAnswer): Record<string, any> {
   const fields: Record<string, any> = {
@@ -178,23 +178,24 @@ export async function uploadResponse(
   question: Question,
   index: number,
   answer: UserAnswer,
-  dropId: string
+  dropId: string,
+  currentMultiplier: number = 1
 ): Promise<void> {
   // Queue if offline
   if (!navigator.onLine) {
-    _offlineQueue.push({ question, index, answer, dropId });
+    _offlineQueue.push({ question, index, answer, dropId, currentMultiplier });
     console.log(`[BRUTAL] Offline — queued response for card ${index}`);
     return;
   }
 
   // Queue if session not started yet
   if (!_sessionId) {
-    _offlineQueue.push({ question, index, answer, dropId });
+    _offlineQueue.push({ question, index, answer, dropId, currentMultiplier });
     console.log(`[BRUTAL] No session_id yet — queued response for card ${index}`);
     return;
   }
 
-  await _sendResponse(question, index, answer, dropId);
+  await _sendResponse(question, index, answer, dropId, currentMultiplier);
 }
 
 /** Internal: actually send a response to the server */
@@ -202,7 +203,8 @@ async function _sendResponse(
   question: Question,
   index: number,
   answer: UserAnswer,
-  dropId: string
+  dropId: string,
+  currentMultiplier: number = 1
 ): Promise<void> {
   if (!_sessionId) return;
 
@@ -213,6 +215,7 @@ async function _sendResponse(
     position_in_drop: index,
     question_type: question.type,
     source: "drop_card",
+    multiplier_at_position: currentMultiplier, // Send current multiplier to the backend
     ...answerToPayloadFields(answer),
   };
 
@@ -226,7 +229,7 @@ async function _sendResponse(
 
     if (res) {
       const data = await res.json().catch(() => ({}));
-      console.log(`[BRUTAL] Response ${index} uploaded: reward=${data.reward_granted}, cash=${data.cash_credited}, tickets=${data.tickets_credited}`);
+      console.log(`[BRUTAL] Response ${index} uploaded (x${currentMultiplier}): reward=${data.reward_granted}, cash=${data.cash_credited}, tickets=${data.tickets_credited}`);
     }
   } catch (err) {
     console.error(`[BRUTAL] Response ${index} upload error:`, err);
@@ -338,7 +341,7 @@ async function _flushQueue(): Promise<void> {
   _offlineQueue.length = 0;
 
   for (const item of queue) {
-    await _sendResponse(item.question, item.index, item.answer, item.dropId);
+    await _sendResponse(item.question, item.index, item.answer, item.dropId, item.currentMultiplier || 1);
   }
 }
 
@@ -379,6 +382,7 @@ export async function claimRewards(params: {
   coins: number;
   tickets: number;
   finalTickets: number;
+  multiplier?: number;
 }): Promise<{ ok: boolean; alreadyClaimed?: boolean; credited?: { coins: number; tickets: number; dropsCompleted: number } }> {
   console.log(`[BRUTAL] Claiming rewards: userId=${params.telegramUserId}, dropId=${params.dropId}, coins=${params.coins}, tickets=${params.finalTickets}`);
 
