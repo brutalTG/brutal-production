@@ -2049,7 +2049,7 @@ app.post("/bot/webhook", async (c) => {
         const cb = update.callback_query;
         const chatId = cb.message?.chat?.id;
         const userId = cb.from.id;
-        const data = cb.callback_data;
+        const data = cb.data;
         
         console.log(`👉 [WEBHOOK] Data del botón: ${data}`);
 
