@@ -2046,7 +2046,7 @@ app.post("/bot/webhook", async (c) => {
         const userId = cb.from.id;
         const data = cb.callback_data;
         
-        // APAGAR RELOJITO INMEDIATAMENTE
+        // APAGAR RELOJITO INMEDIATAMENTE PARA QUE TELEGRAM NO SE QUEJE
         await tgSend("answerCallbackQuery", { callback_query_id: cb.id });
 
         if (data?.startsWith("bq:")) {
@@ -2065,82 +2065,97 @@ app.post("/bot/webhook", async (c) => {
             return;
           }
 
-          const { data: bq, error: bqErr } = await db().from("bot_questions").select("*").eq("bot_question_id", botQuestionId).single();
-          
-          if (bqErr || !bq || !bq.message_config) {
-            console.error("[BOT] Pregunta no encontrada en DB:", bqErr);
-            return;
-          }
-          
-          const config = bq.message_config;
-          const anonymous_id = await anonId(node.node_id);
-          const options = config.options || [];
-          const chosenOption = options[choiceIndex] || `Opción ${choiceIndex + 1}`;
-          const rewardTickets = config.rewardTickets || 0;
-
-          // Evitar doble voto
-          const { data: existingResp } = await db().from("responses")
-            .select("response_id").eq("node_id", node.node_id).eq("question_id", bq.question_id).limit(1);
-
-          if (existingResp && existingResp.length > 0) {
-            if (chatId) await tgSend("sendMessage", { chat_id: chatId, text: "⚠️ Ya respondiste esta pregunta." });
-            return;
-          }
-
-          // GUARDAR RESPUESTA
-          const { error: respErr } = await db().from("responses").insert({
-            node_id: node.node_id, 
-            anonymous_id, 
-            question_id: bq.question_id, 
-            drop_id: bq.linked_drop_id || null,
-            question_type: "choice", 
-            choice: chosenOption,
-            choice_index: choiceIndex, 
-            raw_response: { callback_data: data, bot_question_id: botQuestionId },
-            source: "bot", 
-            reward_type: rewardTickets > 0 ? "golden_ticket" : null,
-            reward_value: rewardTickets, 
-            reward_granted: true,
-          });
-
-          if (respErr) {
-            console.error("[BOT] Error guardando respuesta:", respErr);
-            return;
-          }
-
-          // ACTUALIZAR PERFIL
-          if (rewardTickets > 0) {
-            const { data: p } = await db().from("profiles").select("tickets_current, tickets_lifetime, bot_questions_answered").eq("node_id", node.node_id).single();
-            if (p) {
-              await db().from("profiles").update({
-                tickets_current: (p.tickets_current || 0) + rewardTickets, 
-                tickets_lifetime: (p.tickets_lifetime || 0) + rewardTickets,
-                bot_questions_answered: (p.bot_questions_answered || 0) + 1
-              }).eq("node_id", node.node_id);
+          try {
+            // Buscamos la pregunta en la tabla del bot
+            const { data: bq, error: bqErr } = await db()
+              .from("bot_questions").select("*").eq("bot_question_id", botQuestionId).single();
+            
+            if (bqErr || !bq || !bq.message_config) {
+              console.error("[BOT] Pregunta no encontrada en DB:", bqErr);
+              return;
             }
-          } else {
-            const { data: p } = await db().from("profiles").select("bot_questions_answered").eq("node_id", node.node_id).single();
-            if (p) {
-              await db().from("profiles").update({ bot_questions_answered: (p.bot_questions_answered || 0) + 1 }).eq("node_id", node.node_id);
-            }
-          }
 
-          await db().from("bot_questions").update({ total_answered: (bq.total_answered || 0) + 1 }).eq("bot_question_id", botQuestionId);
+            // Evitar doble voto (buscamos si ya hay respuesta para esta question_id)
+            const { data: existingResp } = await db().from("responses")
+              .select("response_id").eq("node_id", node.node_id).eq("question_id", bq.question_id).limit(1);
 
-          // ACTUALIZAR INTERFAZ TELEGRAM (Borrando botones)
-          const rewardText = rewardTickets > 0 ? `+${rewardTickets} 🎟️` : "✅";
-          if (cb.message && chatId) {
-            try {
-              await tgSend("editMessageReplyMarkup", { chat_id: chatId, message_id: cb.message.message_id, reply_markup: { inline_keyboard: [] } });
-              await tgSend("sendMessage", { chat_id: chatId, text: `<b>Tu respuesta:</b> ${chosenOption}\n${rewardText}`, parse_mode: "HTML" });
-            } catch(e) {
-              console.error("[BOT] Error limpiando botones de TG:", e);
+            if (existingResp && existingResp.length > 0) {
+              if (chatId) await tgSend("sendMessage", { chat_id: chatId, text: "⚠️ Ya respondiste esta pregunta." });
+              return;
             }
+
+            const config = bq.message_config;
+            const anonymous_id = await anonId(node.node_id);
+            const options = config.options || [];
+            const chosenOption = options[choiceIndex] || `Opción ${choiceIndex + 1}`;
+            const rewardTickets = config.rewardTickets || 0;
+
+            // Traemos la season activa por si la tabla de respuestas lo exige
+            const { data: activeSeason } = await db().from("seasons").select("season_id").eq("is_active", true).limit(1);
+            const seasonId = activeSeason?.[0]?.season_id || null;
+
+            // GUARDAR RESPUESTA (con nulls explícitos)
+            const { error: respErr } = await db().from("responses").insert({
+              node_id: node.node_id, 
+              anonymous_id: anonymous_id || null, 
+              session_id: null, // Null explícito porque no viene de un Drop
+              question_id: bq.question_id, 
+              drop_id: bq.linked_drop_id || null,
+              question_type: "choice", 
+              choice: chosenOption,
+              choice_index: choiceIndex, 
+              raw_response: { callback_data: data, bot_question_id: botQuestionId },
+              source: "bot", 
+              reward_type: rewardTickets > 0 ? "golden_ticket" : null,
+              reward_value: rewardTickets, 
+              reward_granted: true,
+              multiplier_at_time: 1,
+              season_id: seasonId
+            });
+
+            if (respErr) {
+              console.error("[BOT] Error crítico insertando en 'responses':", respErr.message, respErr.details);
+              return; // Salimos si falla la DB
+            }
+
+            // ACTUALIZAR PERFIL (Suma tickets)
+            if (rewardTickets > 0) {
+              const { data: p } = await db().from("profiles").select("tickets_current, tickets_lifetime, bot_questions_answered").eq("node_id", node.node_id).single();
+              if (p) {
+                await db().from("profiles").update({
+                  tickets_current: (p.tickets_current || 0) + rewardTickets, 
+                  tickets_lifetime: (p.tickets_lifetime || 0) + rewardTickets,
+                  bot_questions_answered: (p.bot_questions_answered || 0) + 1
+                }).eq("node_id", node.node_id);
+              }
+            } else {
+              const { data: p } = await db().from("profiles").select("bot_questions_answered").eq("node_id", node.node_id).single();
+              if (p) {
+                await db().from("profiles").update({ bot_questions_answered: (p.bot_questions_answered || 0) + 1 }).eq("node_id", node.node_id);
+              }
+            }
+
+            // Sumar al total_answered de la pregunta bot
+            await db().from("bot_questions").update({ total_answered: (bq.total_answered || 0) + 1 }).eq("bot_question_id", botQuestionId);
+
+            // ACTUALIZAR INTERFAZ TELEGRAM (Borrando botones)
+            const rewardText = rewardTickets > 0 ? `+${rewardTickets} 🎟️` : "✅";
+            if (cb.message && chatId) {
+              try {
+                // Sacamos los botones para que el mensaje quede limpio
+                await tgSend("editMessageReplyMarkup", { chat_id: chatId, message_id: cb.message.message_id, reply_markup: { inline_keyboard: [] } });
+                // Mandamos la confirmación
+                await tgSend("sendMessage", { chat_id: chatId, text: `<b>Tu respuesta:</b> ${chosenOption}\n${rewardText}`, parse_mode: "HTML" });
+              } catch(e) {
+                console.error("[BOT] Error limpiando botones de TG:", e);
+              }
+            }
+          } catch (e) {
+             console.error("[BOT] Excepción grave procesando bq:", e);
           }
         }
         return;
       }
-
       // 2. Manejo de comandos regulares (/start, /drop, etc)
       if (update.message?.text?.startsWith("/start")) {
         const chatId = update.message.chat.id;
