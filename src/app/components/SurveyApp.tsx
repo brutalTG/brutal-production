@@ -141,9 +141,20 @@ function useNodeGate() {
 }
 
 function NodeGateScreen({ status, nickname }: { status: NodeStatus; nickname: string | null }) {
+  // --- BOTÓN DE DIOS (Solo para vos) ---
+  // Borra la memoria del iPhone y recarga la app
+  const handleSecretReset = () => {
+    localStorage.clear();
+    window.location.reload();
+  };
+
   return (
     <div className="fixed inset-0 bg-black flex flex-col items-center justify-center p-8 text-center">
-      <div className="w-16 h-16 rounded-2xl bg-[#111] border border-[#222] flex items-center justify-center mb-6">
+      {/* Le agregamos el onClick al logo de la B */}
+      <div 
+        onClick={handleSecretReset}
+        className="w-16 h-16 rounded-2xl bg-[#111] border border-[#222] flex items-center justify-center mb-6 cursor-pointer active:scale-90 transition-transform"
+      >
         <span className="text-2xl font-bold text-white font-['Silkscreen']">B</span>
       </div>
 
