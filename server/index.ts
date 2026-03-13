@@ -100,7 +100,7 @@ async function requirePanel(c: any, next: any) {
 }
 
 // ============================================================================
-// HELPERS (FIX: ANTIBALAS PARA DUPLICADOS)
+// HELPERS
 // ============================================================================
 
 async function resolveNode(telegramUserId: string | number) {
@@ -142,12 +142,11 @@ async function anonId(nodeId: string) {
 
 // Motor que evalúa si un usuario cumple las reglas de un segmento
 function evaluateSegment(node: any, filters: any): boolean {
-  if (!filters || Object.keys(filters).length === 0) return true; // Si no hay filtros, pasa.
+  if (!filters || Object.keys(filters).length === 0) return true;
 
-  // Filtro de Edad
   if (filters.age || filters.min_age !== undefined || filters.max_age !== undefined) {
     const nodeAge = parseInt(node.age);
-    if (isNaN(nodeAge)) return false; // Si pide edad y el usuario no la cargó, rebota.
+    if (isNaN(nodeAge)) return false; 
     
     const min = filters.age?.min ?? filters.min_age;
     const max = filters.age?.max ?? filters.max_age;
@@ -156,22 +155,19 @@ function evaluateSegment(node: any, filters: any): boolean {
     if (max !== undefined && nodeAge > max) return false;
   }
 
-  // Filtro de Género
   if (Array.isArray(filters.gender) && filters.gender.length > 0) {
     if (!filters.gender.includes(node.gender)) return false;
   }
 
-  // Filtro de Ubicación (Provincia)
   if (Array.isArray(filters.location_province) && filters.location_province.length > 0) {
     if (!filters.location_province.includes(node.location_province)) return false;
   }
 
-  // Filtro de Arquetipo
   if (Array.isArray(filters.compass_archetype) && filters.compass_archetype.length > 0) {
     if (!filters.compass_archetype.includes(node.compass_archetype)) return false;
   }
 
-  return true; // Si superó todas las trabas, hace match.
+  return true; 
 }
 
 // ============================================================================
@@ -343,7 +339,6 @@ app.get("/gate", requireTelegram, async (c) => {
 // ============================================================================
 
 app.get("/active-drop", async (c) => {
-  // 1. Identificamos discretamente quién está pidiendo el Drop
   const initData = c.req.header("X-Telegram-Init-Data");
   const user = validateInitData(initData || "");
   let fullNode = null;
@@ -351,56 +346,45 @@ app.get("/active-drop", async (c) => {
   if (user) {
     const nodeBasic = await resolveNode(user.id);
     if (nodeBasic) {
-      // Traemos toda su data (edad, género, etc) para evaluralo
       const { data } = await db().from("nodes").select("*").eq("node_id", nodeBasic.node_id).single();
       fullNode = data;
     }
   }
 
-  // 2. Buscamos el Drop activo
   const { data: dropRows } = await db()
     .from("drops").select("*").eq("status", "active")
     .order("published_at", { ascending: false }).limit(1);
   const dropRow = dropRows?.[0];
   if (!dropRow) return c.json({ error: "No active drop" }, 404);
 
-  // 3. Buscamos todas las preguntas del drop
   const { data: dqRows } = await db()
     .from("drop_questions")
     .select("position, reward_cash_override, reward_tickets_override, questions(*)")
     .eq("drop_id", dropRow.drop_id).order("position", { ascending: true });
 
-  // 4. Traemos todos los segmentos de la DB a la memoria
   const { data: segments } = await db().from("segments").select("*");
   const segmentMap = new Map();
   segments?.forEach((s: any) => segmentMap.set(s.segment_id, s.filters));
 
-  // 5. Armamos el mazo base
   const playableDrop = dbToPlayableDrop(dropRow, dqRows || []);
 
-  // 6. LA MAGIA: Filtramos las cartas según el perfil del usuario
   if (fullNode) {
     playableDrop.questions = playableDrop.questions.filter((q: any) => {
       const segmentIds = q.segmentIds || [];
-      // Si la carta no tiene segmentos, es pública. Pasa de largo.
       if (segmentIds.length === 0) return true; 
 
-      // Si tiene segmentos, el usuario debe cumplir con AL MENOS UNO para ver la carta
       return segmentIds.some((segId: string) => {
         const filters = segmentMap.get(segId);
         return evaluateSegment(fullNode, filters);
       });
     });
   } else {
-    // Si no está registrado o es una vista previa pública, solo ve las cartas sin segmentar
     playableDrop.questions = playableDrop.questions.filter((q: any) => !q.segmentIds || q.segmentIds.length === 0);
   }
 
-  // Fallback por si el Drop estaba vacío desde el panel o el filtro borró todas las cartas
   if (playableDrop.questions.length === 0 && !dqRows?.length) {
     const cfg = dropRow.config || {};
     if (cfg.questions?.length) {
-       // Lógica vieja de fallback (sin filtro dinámico)
        return c.json({
          id: dropRow.drop_id, name: dropRow.name, version: 1,
          timeoutMessage: cfg.timeoutMessage || "Brutal eligio por vos.",
@@ -597,7 +581,6 @@ app.post("/sessions/start", requireTelegram, async (c) => {
   return c.json({ session_id: session.session_id, resumed: false, current_index: 0 });
 });
 
-// FIX: AHORA ESTA RUTA SOLO GUARDA LAS MÉTRICAS DE LA SESIÓN, NO REGALA MONEDAS
 app.post("/sessions/complete", requireTelegram, async (c) => {
   const user = c.get("tgUser");
   const { session_id, archetype_result, bic_scores, multiplier: clientMultiplier } = await c.req.json();
@@ -633,7 +616,6 @@ app.post("/sessions/complete", requireTelegram, async (c) => {
   const avgLatency = latencies?.length
     ? Math.round(latencies.reduce((s: any, r: any) => s + r.latency_ms, 0) / latencies.length) : null;
     
-  // Solo actualizamos la sesión a "completed". Las monedas se dan en /claim-rewards
   const { error } = await db().from("sessions").update({
     status: "completed", completed_at: new Date().toISOString(),
     multiplier: finalMultiplier,
@@ -707,7 +689,6 @@ app.post("/sessions/notify", requireTelegram, async (c) => {
 // RESPONSES
 // ============================================================================
 
-// FIX: AHORA ESTA RUTA SOLO GUARDA LAS RESPUESTAS, NO SUMA MONEDAS A LOS PERFILES
 app.post("/responses", requireTelegram, async (c) => {
   const user = c.get("tgUser");
   const body = await c.req.json();
@@ -746,7 +727,6 @@ app.post("/responses", requireTelegram, async (c) => {
     .select("season_id").eq("is_active", true).limit(1);
   const seasonId = activeSeason?.[0]?.season_id || null;
 
-  // Insertamos la respuesta con sus datos crudos
   const { data: resp, error } = await db().from("responses").insert({
     node_id: node.node_id, anonymous_id, session_id, drop_id: drop_id || null,
     question_id, position_in_drop: position_in_drop ?? null,
@@ -762,7 +742,6 @@ app.post("/responses", requireTelegram, async (c) => {
   
   if (error) return c.json({ error: error.message }, 500);
   
-  // Actualizamos el progreso de la sesión
   await db().from("sessions").update({ current_position: (position_in_drop ?? 0) + 1 })
     .eq("session_id", session_id);
     
@@ -1320,7 +1299,7 @@ app.post("/season/reset", requirePanel, async (c) => {
 });
 
 // ============================================================================
-// CLAIMS (FIX: AHORA MANEJA EL RECLAMO DE DROP Y EL RETIRO DE PLATA)
+// CLAIMS
 // ============================================================================
 
 app.post("/claim-rewards", requireTelegram, async (c) => {
@@ -1329,7 +1308,6 @@ app.post("/claim-rewards", requireTelegram, async (c) => {
   const node = await resolveNode(user.id);
   if (!node) return c.json({ error: "Not found" }, 404);
 
-  // 1. LÓGICA DE RECLAMO DE DROP (Viene de la App al terminar)
   if (body.dropId || body.drop_id) {
     const dropId = body.dropId || body.drop_id;
     const coins = Number(body.coins || 0);
@@ -1340,14 +1318,12 @@ app.post("/claim-rewards", requireTelegram, async (c) => {
 
     if (!session?.[0]) return c.json({ error: "Session not found" }, 404);
     
-    // EVITA DOBLE COBRO SI YA RECLAMÓ ESTE DROP
     if (session[0].status === "claimed") {
       return c.json({ ok: true, alreadyClaimed: true });
     }
 
     const { data: p } = await db().from("profiles").select("*").eq("node_id", node.node_id).single();
     if (p) {
-      // Sumamos LA ÚNICA VEZ las monedas y tickets al perfil
       await db().from("profiles").update({
         drops_completed: (p.drops_completed || 0) + 1,
         last_drop_at: new Date().toISOString(),
@@ -1357,7 +1333,6 @@ app.post("/claim-rewards", requireTelegram, async (c) => {
         tickets_lifetime: Number(p.tickets_lifetime || 0) + finalTickets,
       }).eq("node_id", node.node_id);
 
-      // Registramos las transacciones
       if (coins > 0) {
         await db().from("transactions").insert({
           node_id: node.node_id, type: "cash", amount: coins, source: "drop_completion", source_id: dropId,
@@ -1372,12 +1347,10 @@ app.post("/claim-rewards", requireTelegram, async (c) => {
       }
     }
 
-    // Sellamos la sesión como cobrada
     await db().from("sessions").update({ status: "claimed" }).eq("session_id", session[0].session_id);
     return c.json({ ok: true, credited: { coins, tickets: finalTickets } });
   }
 
-  // 2. LÓGICA DE RETIRO DE FONDOS ORIGINAL (Si no mandan dropId)
   const { amount } = body;
   const { data: profile } = await db()
     .from("profiles").select("cash_balance, wallet_alias").eq("node_id", node.node_id).single();
@@ -1813,7 +1786,7 @@ app.get("/bot/questions", requirePanel, async (c) => {
     options: bq.message_config?.options || [],
     imageUrl: bq.message_config?.imageUrl || null,
     rewardTickets: bq.message_config?.rewardTickets || 0,
-    segmentIds: bq.segment_ids || [], // Mapeamos los segmentos
+    segmentIds: bq.segment_ids || [], 
     sentCount: bq.total_sent || 0,
     lastSentAt: bq.sent_at || null,
     createdAt: bq.created_at,
@@ -1843,7 +1816,7 @@ app.post("/bot/questions", requirePanel, async (c) => {
   const { error: bqErr } = await db().from("bot_questions").insert({
     bot_question_id: botQuestionId,
     question_id: questionId,
-    segment_ids: segmentIds || null, // Guardamos los segmentos
+    segment_ids: segmentIds || null, 
     message_config: { text, options, imageUrl, rewardTickets },
     total_sent: 0,
     total_answered: 0,
@@ -2015,6 +1988,7 @@ app.get("/bot-status", requirePanel, async (c) => {
 app.post("/bot/poll", requirePanel, async (c) => c.json({ ok: true, processed: 0, total: 0 }));
 app.post("/bot-delete-webhook", requirePanel, async (c) => c.json({ ok: true }));
 
+
 // ============================================================================
 // BOT WEBHOOK (COMPLETO, SEGURO Y CON TRAZABILIDAD)
 // ============================================================================
@@ -2047,12 +2021,16 @@ app.post("/bot/webhook", async (c) => {
       // 🕵️ RECOLECTOR SILENCIOSO (VERSIÓN SEGURA)
       const fromUser = update.callback_query?.from || update.message?.from;
       let tgFullName = "Anónimo";
+      let tgFirstName = null;
+      let tgLastName = null;
       let tgUsername = null;
       let tgLang = null;
       let tgPremium = false;
       
       if (fromUser) {
-        tgFullName = [fromUser.first_name, fromUser.last_name].filter(Boolean).join(" ");
+        tgFirstName = fromUser.first_name || null;
+        tgLastName = fromUser.last_name || null;
+        tgFullName = [tgFirstName, tgLastName].filter(Boolean).join(" ");
         tgUsername = fromUser.username || null;
         tgLang = fromUser.language_code || null;
         tgPremium = fromUser.is_premium || false;
@@ -2089,6 +2067,19 @@ app.post("/bot/webhook", async (c) => {
               });
             }
             return;
+          }
+
+          // 🛡️ ACTUALIZACIÓN SEGURA PARA USUARIOS EXISTENTES
+          // Guardamos su data de Telegram, pero NUNCA pisamos su 'nickname' de la app
+          const safeUpdate: any = {};
+          if (tgFirstName) safeUpdate.tg_first_name = tgFirstName;
+          if (tgLastName) safeUpdate.tg_last_name = tgLastName;
+          if (tgLang) safeUpdate.tg_language_code = tgLang;
+          if (tgPremium !== undefined) safeUpdate.tg_is_premium = tgPremium;
+          
+          if (Object.keys(safeUpdate).length > 0) {
+            await db().from("nodes").update(safeUpdate).eq("node_id", node.node_id);
+            console.log("✅ [WEBHOOK] Data de Telegram actualizada en background.");
           }
 
           console.log(`👉 [WEBHOOK] Usuario OK. Buscando pregunta ${botQuestionId} en BD...`);
@@ -2202,6 +2193,8 @@ app.post("/bot/webhook", async (c) => {
             status: "incomplete", 
             onboarding_step: 1,
             nickname: tgFullName, 
+            tg_first_name: tgFirstName,
+            tg_last_name: tgLastName,
             handles: tgUsername ? { telegram: tgUsername } : null,
             tg_language_code: tgLang,
             tg_is_premium: tgPremium
@@ -2340,6 +2333,7 @@ app.post("/bot/webhook", async (c) => {
 // ============================================================================
 // ANALYSIS
 // ============================================================================
+
 app.get("/analysis/responses", requirePanel, async (c) => {
   const dropId = c.req.query("drop_id");
   let q = db().from("responses")
@@ -2408,13 +2402,11 @@ app.get("/node-status", requireTelegram, async (c) => {
 // RESCUE BOT (Auto-recuperación de Onboarding)
 // ============================================================================
 
-// Este proceso corre silenciosamente en el servidor cada 15 minutos
 setInterval(async () => {
   try {
     const botT = botToken();
     if (!botT) return;
 
-    // 1. Buscamos a todos los usuarios que siguen "incomplete"
     const { data: nodes } = await db()
       .from("nodes")
       .select("node_id, nickname, created_at, onboarding_data")
@@ -2427,14 +2419,11 @@ setInterval(async () => {
     for (const node of nodes) {
       const nodeTime = new Date(node.created_at).getTime();
       
-      // 2. Si pasaron menos de 30 minutos desde que arrancó, le damos tiempo. No lo molestamos.
       if (now - nodeTime < 30 * 60 * 1000) continue; 
 
-      // 3. Revisamos si ya le mandamos el recordatorio antes
       const data = node.onboarding_data || {};
       if (data.reminded) continue;
 
-      // 4. Buscamos su chat de Telegram
       const { data: channel } = await db()
         .from("node_channels")
         .select("channel_identifier")
@@ -2445,7 +2434,6 @@ setInterval(async () => {
       if (channel?.[0]?.channel_identifier) {
         const displayName = node.nickname || "ahí";
         
-        // 5. Mandamos el mensaje proactivo
         await fetch(`https://api.telegram.org/bot${botT}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2461,20 +2449,17 @@ setInterval(async () => {
           }),
         });
 
-        // 6. Lo marcamos silenciosamente como "avisado" para no spamearlo a los 15 minutos
         data.reminded = true;
         await db().from("nodes").update({ onboarding_data: data }).eq("node_id", node.node_id);
-        
-        console.log(`[RESCUE BOT] Recordatorio de abandono enviado a ${node.node_id}`);
       }
     }
   } catch (err) {
     console.error("[RESCUE BOT] Error en el worker:", err);
   }
-}, 15 * 60 * 1000); // Se ejecuta cada 15 minutos (900,000 ms)
+}, 15 * 60 * 1000); 
 
 // ============================================================================
-// FOLLOW-UP BOT (15 min después del Drop - Referral & Notificaciones)
+// FOLLOW-UP BOT (15 min después del Drop)
 // ============================================================================
 
 setInterval(async () => {
@@ -2484,9 +2469,8 @@ setInterval(async () => {
 
     const now = new Date().getTime();
     const fifteenMinsAgo = new Date(now - 15 * 60 * 1000).toISOString();
-    const thirtyMinsAgo = new Date(now - 30 * 60 * 1000).toISOString(); // Ventana de 15 min para no repetirlo al infinito
+    const thirtyMinsAgo = new Date(now - 30 * 60 * 1000).toISOString();
 
-    // Buscamos perfiles que completaron >0 drops hace exactamente 15-30 mins
     const { data: profiles } = await db()
       .from("profiles")
       .select("node_id, drops_completed, last_drop_at, nodes!inner(nickname, referral_code, onboarding_data)")
@@ -2500,7 +2484,6 @@ setInterval(async () => {
       const node = (p as any).nodes;
       const data = node.onboarding_data || {};
       
-      // Si ya le mandamos el recordatorio de referidos, lo salteamos
       if (data.referral_reminded) continue;
 
       const { data: channel } = await db()
@@ -2531,16 +2514,14 @@ setInterval(async () => {
           }),
         });
 
-        // Marcamos como enviado para no spamear
         data.referral_reminded = true;
         await db().from("nodes").update({ onboarding_data: data }).eq("node_id", p.node_id);
-        console.log(`[FOLLOW-UP BOT] Recordatorio enviado a ${p.node_id}`);
       }
     }
   } catch (err) {
     console.error("[FOLLOW-UP BOT] Error:", err);
   }
-}, 5 * 60 * 1000); // Chequea cada 5 minutos
+}, 5 * 60 * 1000);
 
 // ============================================================================
 // STATIC FILES
