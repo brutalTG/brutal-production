@@ -6,7 +6,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { RewardEvent } from "./reward-animation";
 import type { UserAnswer } from "./archetype-engine";
 import type { Question, MultiplierCheckpoint, Drop } from "./drop-types";
-import { useNavigate } from "react-router"; // (o react-router-dom, dependiendo de lo que uses)
+import { useNavigate } from "react-router";
 
 // --- Screens ---
 import { SplashScreen } from "./splash-screen";
@@ -271,41 +271,36 @@ export default function SurveyApp() {
   const { status: nodeStatus, nickname } = useNodeGate();
   const navigate = useNavigate();
 
-  // Shared result page intercept (doesn't need drop)
+  // Shared result page intercept
   const sharedResult = parseSharedResult();
   if (sharedResult) return <SharedResultPage data={sharedResult} />;
 
   // Redirecciones del patovica:
   useEffect(() => {
-    // Si la puerta nos dice que no existe ("not_found") o dejó el registro por la mitad
-    // ("segment_denied" asumiendo que es incomplete, o podés agregar "incomplete" a los estados del hook),
-    // lo pateamos a /entrar
     if (nodeStatus === "not_found") {
       console.log("[BRUTAL] Usuario no registrado. Redirigiendo al onboarding...");
       navigate("/entrar");
     }
   }, [nodeStatus, navigate]);
 
-  // --- NUEVO: Escudo de Memoria Local (Frontend Shield) ---
+  // --- NUEVO: Escudo Local contra el Direct Link Loophole ---
   const hasPlayedLocally = localStorage.getItem(`brutal_drop_completed_${drop.id}`);
 
-  // Node gate: block access for non-active nodes (inside Telegram only)
-  // IMPORTANTE: Sacamos "not_found" de esta lista porque ya lo atajamos arriba y lo redirigimos
+  // Node gate: block access for non-active nodes
   if (nodeStatus === "loading" || nodeStatus === "pending" || nodeStatus === "blocked" || nodeStatus === "segment_denied" || nodeStatus === "completed") {
     return <NodeGateScreen status={nodeStatus} nickname={nickname} />;
   }
-  
-  // --- NUEVO: Bloqueo Local Inmediato ---
+
+  // Escudo Local: Si ya lo completó en este dispositivo, bloquea antes de cargar
   if (hasPlayedLocally) {
     return <NodeGateScreen status="completed" nickname={nickname} />;
   }
-
-  // Si nodeStatus es "not_found", mientras React hace el navigate, devolvemos null para no parpadear pantallas raras
+  
   if (nodeStatus === "not_found") {
       return null;
   }
 
-  // drop is always available (starts with fallback), no loading gate needed
+  // Si pasa todo, carga el juego
   return <SurveyCore drop={drop} source={source} />;
 }
 
@@ -314,12 +309,10 @@ export default function SurveyApp() {
 // ============================================================
 
 function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
-  // --- ESCUDO GLOBAL ANTI-CRASH (Fix: Cannot read properties of undefined reading 'trigger') ---
+  // --- ESCUDO GLOBAL ANTI-CRASH HAPTICS ---
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp;
     if (tg && !tg.HapticFeedback) {
-      // Si el objeto de vibración no está listo, creamos un simulador vacío
-      // para que las ráfagas no exploten al intentar usarlo.
       tg.HapticFeedback = {
         impactOccurred: () => {},
         notificationOccurred: () => {},
@@ -337,7 +330,7 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
   );
   const questionOptionsMap = useMemo(() => buildQuestionOptionsMap(questions), [questions]);
 
-  // --- Deep-link screen routing (e.g. bot inline buttons: ?screen=profile) ---
+  // --- Deep-link screen routing ---
   const initialScreen = useMemo<ScreenType>(() => {
     const s = new URLSearchParams(window.location.search).get("screen");
     if (s === "profile" || s === "leaderboard") return s;
@@ -369,7 +362,6 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
   const answersRef = useRef<Record<number, UserAnswer>>({});
   const sessionFinalizedRef = useRef(false);
   const firstQuestionAnswered = useRef(false);
-  /** Track the last question index we uploaded a response for */
   const lastUploadedIndexRef = useRef(-1);
 
   // --- Duotone colors ---
@@ -408,26 +400,21 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
   }, [screen, questionIndex]);
 
   // ============================================================
-  // Per-card upload: CORREGIDO para registrar el multiplicador real
+  // Per-card upload: ACTUALIZADO con Multiplicador
   // ============================================================
   useEffect(() => {
-    // Skip if we haven't answered anything yet
     if (questionIndex === 0 && lastUploadedIndexRef.current === -1) return;
 
     const prevIndex = questionIndex - 1;
-    // Only upload if we haven't uploaded this index yet
     if (prevIndex >= 0 && prevIndex > lastUploadedIndexRef.current) {
       const prevAnswer = answersRef.current[prevIndex];
       const prevQuestion = questions[prevIndex];
       if (prevAnswer && prevQuestion) {
         lastUploadedIndexRef.current = prevIndex;
-        
-        // Enviamos el multiplicador actual (currentMultiplier) como 5to parámetro.
-        // Esto soluciona que en la DB aparezca el valor real (1.25, 1.5, etc) y no siempre 1.
+        // Se envía el multiplicador de este momento para guardarlo en la DB
         uploadResponse(prevQuestion, prevIndex, prevAnswer, drop.id, currentMultiplier);
       }
     }
-    // Agregamos 'currentMultiplier' aquí para que el efecto se actualice si el usuario activa un boost
   }, [questionIndex, questions, drop.id, currentMultiplier]);
   
   // --- Derived ---
@@ -504,7 +491,6 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
         onComplete={() => {
           resetRecords();
           signalStartSession(drop.id, drop.name, getTelegramPlatform(), getTelegramUserId());
-          // Start server session in background (non-blocking)
           serverStartSession(drop.id);
           setScreen("question");
         }}
@@ -549,8 +535,7 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
     if (!sessionFinalizedRef.current) {
       sessionFinalizedRef.current = true;
 
-      // Upload the LAST card's answer (the per-card effect won't catch it
-      // because questionIndex doesn't change when going to reveal)
+      // Subir la última carta
       const lastIdx = totalQuestions - 1;
       const lastAnswer = answersRef.current[lastIdx];
       const lastQuestion = questions[lastIdx];
@@ -559,19 +544,16 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
         uploadResponse(lastQuestion, lastIdx, lastAnswer, drop.id, currentMultiplier);
       }
 
-      // --- GRABAMOS EN MEMORIA QUE YA TERMINÓ EL DROP ---
+      // --- GUARDA EN MEMORIA QUE COMPLETÓ EL DROP ---
       localStorage.setItem(`brutal_drop_completed_${drop.id}`, "true");
 
-      // Finalize local session
       const archetypeData = archetype ? { id: archetype.id, title: archetype.title } : undefined;
       const session = finalizeSession(questions, getRecords(), { coins, tickets, multiplier: currentMultiplier }, archetypeData, getTelegramUserId());
       if (session) {
         console.log("[BRUTAL] Session finalized:", exportSessionJSON(session));
-        // Legacy uploadSession (no-op now)
         uploadSession(session);
       }
 
-      // Complete server session (calculates totals, updates profile — NO bot message)
       completeSession({
         archetype_result: archetypeData,
         bic_scores: session?.signalPairs || null,
@@ -598,16 +580,13 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
           try {
             await waitForUpload();
             if (tgUserId) {
-              // MANDAMOS LOS REWARDS "LIMPIOS" PARA QUE NO SE DUPLIQUEN
+              // FIX DOUBLE REWARDS: Enviamos 0 porque ya se sumaron pregunta a pregunta.
               const result = await claimRewards({
                 telegramUserId: tgUserId,
                 dropId: drop.id,
-                // Ponemos 0 en coins y tickets porque ya se sumaron 
-                // automáticamente pregunta por pregunta en el backend.
                 coins: 0, 
                 tickets: 0, 
-                // Mandamos el total de tickets multiplicados como "finalTickets"
-                finalTickets: Math.round(tickets * currentMultiplier),
+                finalTickets: finalTickets,
                 multiplier: currentMultiplier,
               });
               console.log("[BRUTAL] Claim rewards result:", result);
@@ -620,7 +599,6 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
           }
         }}
         onNotifyAndClose={async () => {
-          // Fire notify (triggers bot message with final rewards), then close
           notifyDropComplete({
             total_cash: coins,
             total_tickets: finalTickets,
@@ -644,35 +622,18 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
 
   if (screen === "profile") {
     const tgUserId = getTelegramUserId() || (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
-    
-    if (!tgUserId) { 
-      return <div className="h-dvh flex items-center justify-center bg-black text-[#555]">Cargando perfil...</div>; 
-    }
-    
-    return (
-      <ProfileScreen
-        telegramUserId={tgUserId}
-        onBack={undefined} // <--- CAMBIADO: Quitamos el botón de volver
-        onLeaderboard={() => setScreen("leaderboard")}
-      />
-    );
+    if (!tgUserId) return <div className="h-dvh flex items-center justify-center bg-black text-[#555]">Cargando perfil...</div>; 
+    return <ProfileScreen telegramUserId={tgUserId} onBack={undefined} onLeaderboard={() => setScreen("leaderboard")} />;
   }
 
   if (screen === "leaderboard") {
     const tgUserId = getTelegramUserId() || (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
-    return (
-      <LeaderboardScreen
-        telegramUserId={tgUserId}
-        onBack={undefined} // <--- CAMBIADO: Quitamos el botón de volver
-        onProfile={() => setScreen("profile")}
-      />
-    );
+    return <LeaderboardScreen telegramUserId={tgUserId} onBack={undefined} onProfile={() => setScreen("profile")} />;
   }
   
   // ====== QUESTION SCREEN ======
   if (screen !== "question" || !currentQuestion) return null;
 
-  // Full-screen question types bypass the header layout
   if (FULLSCREEN_TYPES.has(currentQuestion.type)) {
     return (
       <QuestionRenderer
@@ -687,7 +648,6 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
     );
   }
 
-  // Standard layout: header + question content
   const formattedCoins = coins % 1 === 0 ? coins.toString() : coins.toFixed(2).replace(".", ",");
   const formattedTickets = tickets.toLocaleString("es-AR");
   const isPenalty = !!rewardEvent?.penalty;
@@ -704,12 +664,10 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
           paddingBottom: "calc(var(--tg-safe-bottom, 0px) + 24px)",
         }}
       >
-        {/* Story Progress Bar */}
         <div className="w-full mb-3">
           <StoryProgressBar total={totalQuestions} current={questionIndex} />
         </div>
 
-        {/* Top Header */}
         <div className="w-full flex flex-col gap-4 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -749,7 +707,6 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
           </div>
         </div>
 
-        {/* Question Content */}
         <div className="flex-1 flex flex-col gap-8 overflow-y-auto overflow-x-hidden">
           <QuestionRenderer
             key={questionIndex}
@@ -764,7 +721,6 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
         </div>
       </div>
 
-      {/* Micro-reaction overlay */}
       {reactionText && currentQuestion.type !== "hot_take" && currentQuestion.type !== "hot_take_visual" && (
         <MicroReaction text={reactionText} duration={REACTION_MS} />
       )}
