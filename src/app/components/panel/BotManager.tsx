@@ -556,26 +556,34 @@ function QuestionsTab() {
   };
 
   const handleCreate = async (q: { text: string; options: string[]; imageUrl: string | null; rewardTickets: number }) => {
-    await apiFetch("/bot/questions", {
-      method: "POST",
-      body: JSON.stringify(q),
-    });
-    showToast("Pregunta creada");
-    setView({ mode: "list" });
-    loadQuestions();
+    try {
+      await apiFetch("/bot/questions", {
+        method: "POST",
+        body: JSON.stringify(q),
+      });
+      showToast("Pregunta creada");
+      setView({ mode: "list" });
+      loadQuestions();
+    } catch (err: any) {
+      showToast(`Error al crear: ${err.message}`);
+    }
   };
 
   const handleUpdate = async (
     id: string,
     q: { text: string; options: string[]; imageUrl: string | null; rewardTickets: number }
   ) => {
-    await apiFetch(`/bot/questions/${id}`, {
-      method: "PUT",
-      body: JSON.stringify(q),
-    });
-    showToast("Pregunta actualizada");
-    setView({ mode: "list" });
-    loadQuestions();
+    try {
+      await apiFetch(`/bot/questions/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(q),
+      });
+      showToast("Pregunta actualizada");
+      setView({ mode: "list" });
+      loadQuestions();
+    } catch (err: any) {
+      showToast(`Error al actualizar: ${err.message}`);
+    }
   };
 
   const handleDelete = async (id: string) => {
