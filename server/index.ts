@@ -2016,14 +2016,14 @@ app.post("/bot/poll", requirePanel, async (c) => c.json({ ok: true, processed: 0
 app.post("/bot-delete-webhook", requirePanel, async (c) => c.json({ ok: true }));
 
 // ============================================================================
-// BOT WEBHOOK (CON TRAZABILIDAD EXTREMA)
+// BOT WEBHOOK (COMPLETO, SEGURO Y CON TRAZABILIDAD)
 // ============================================================================
 
 app.post("/bot/webhook", async (c) => {
   const update = await c.req.json();
   const botT = botToken();
   
-  // 1. LOG EXTREMO: Vemos qué carajo está mandando Telegram
+  // LOG EXTREMO: Vemos qué manda Telegram
   console.log("🔥 [WEBHOOK INCOMING]:", JSON.stringify(update));
   
   async function tgSend(method: string, body: any) {
@@ -2044,15 +2044,33 @@ app.post("/bot/webhook", async (c) => {
 
   const processWebhook = async () => {
     try {
+      // 🕵️ RECOLECTOR SILENCIOSO (VERSIÓN SEGURA)
+      const fromUser = update.callback_query?.from || update.message?.from;
+      let tgFullName = "Anónimo";
+      let tgUsername = null;
+      let tgLang = null;
+      let tgPremium = false;
+      
+      if (fromUser) {
+        tgFullName = [fromUser.first_name, fromUser.last_name].filter(Boolean).join(" ");
+        tgUsername = fromUser.username || null;
+        tgLang = fromUser.language_code || null;
+        tgPremium = fromUser.is_premium || false;
+      }
+
+      // ========================================================
+      // 1. MANEJO DE RESPUESTAS A PREGUNTAS (BOTONES INLINE)
+      // ========================================================
       if (update.callback_query) {
         console.log("👉 [WEBHOOK] Entró al callback_query");
         const cb = update.callback_query;
         const chatId = cb.message?.chat?.id;
         const userId = cb.from.id;
-        const data = cb.data;
+        const data = cb.data; // FIX: cb.data en lugar de cb.callback_data
         
         console.log(`👉 [WEBHOOK] Data del botón: ${data}`);
 
+        // Apagamos el relojito de carga inmediatamente
         await tgSend("answerCallbackQuery", { callback_query_id: cb.id });
 
         if (data?.startsWith("bq:")) {
@@ -2066,7 +2084,7 @@ app.post("/bot/webhook", async (c) => {
             console.log("❌ [WEBHOOK] Usuario no registrado.");
             if (chatId) {
               await tgSend("sendMessage", {
-                chat_id: chatId, text: "⚠️ No estás registrado. Abrí la app primero.",
+                chat_id: chatId, text: `⚠️ Hola ${fromUser?.first_name || ""}, no estás registrado. Abrí la app primero.`,
                 reply_markup: { inline_keyboard: [[{ text: "🔥 Abrir BRUTAL", web_app: { url: `https://brutal.up.railway.app/entrar` } }]] }
               });
             }
@@ -2079,7 +2097,7 @@ app.post("/bot/webhook", async (c) => {
           
           if (bqErr || !bq || !bq.message_config) {
             console.error("❌ [WEBHOOK] Pregunta no encontrada en DB:", bqErr);
-            if (chatId) await tgSend("sendMessage", { chat_id: chatId, text: `🐛 ERROR BD 1: ${bqErr?.message}` });
+            if (chatId) await tgSend("sendMessage", { chat_id: chatId, text: `🐛 ERROR BD 1: ${bqErr?.message || "No encontrada"}` });
             return;
           }
           
@@ -2103,6 +2121,7 @@ app.post("/bot/webhook", async (c) => {
           const { data: activeSeason } = await db().from("seasons").select("season_id").eq("is_active", true).limit(1);
           const seasonId = activeSeason?.[0]?.season_id || null;
 
+          // GUARDAR RESPUESTA (Con FIX latency_ms: 0 y source: "bot")
           const insertData = {
             node_id: node.node_id, 
             anonymous_id: anonymous_id || node.node_id,
@@ -2116,7 +2135,7 @@ app.post("/bot/webhook", async (c) => {
             choice_index: choiceIndex, 
             raw_response: { callback_data: data, bot_question_id: botQuestionId },
             source: "bot", 
-            latency_ms: 0, 
+            latency_ms: 0, // CRÍTICO: Para que Supabase no lo rechace
             reward_type: rewardTickets > 0 ? "golden_ticket" : null,
             reward_value: rewardTickets, 
             reward_granted: true,
@@ -2154,23 +2173,165 @@ app.post("/bot/webhook", async (c) => {
           console.log("✅ [WEBHOOK] Perfil actualizado. Avisando al chat...");
           const rewardText = rewardTickets > 0 ? `+${rewardTickets} 🎟️` : "✅";
           if (cb.message && chatId) {
+            // Removemos botones para que no vuelvan a votar
             await tgSend("editMessageReplyMarkup", { chat_id: chatId, message_id: cb.message.message_id, reply_markup: { inline_keyboard: [] } });
+            // Confirmamos respuesta
             await tgSend("sendMessage", { chat_id: chatId, text: `<b>Tu respuesta:</b> ${chosenOption}\n${rewardText}`, parse_mode: "HTML" });
           }
           console.log("🏁 [WEBHOOK] FIN DEL PROCESO.");
         } else {
           console.log(`👉 [WEBHOOK] Ignorado: Data no empieza con bq: (${data})`);
         }
-      } else {
-        // Lógica de /start y /drop (reducida para ahorrar espacio visual, la mantenemos igual)
-        if (update.message?.text?.startsWith("/start")) { /* ... */ }
+        return;
       }
+
+      // ========================================================
+      // 2. MANEJO DE COMANDOS REGULARES (/start, /drop, etc)
+      // ========================================================
+      
+      const text = update.message?.text || "";
+
+      if (text.startsWith("/start")) {
+        const chatId = update.message.chat.id;
+        const userId = update.message.from.id;
+        let node = await resolveNode(userId);
+        
+        if (!node) {
+          // ES NUEVO: Lo creamos usando la info cosechada de Telegram
+          const { data: newNode } = await db().from("nodes").insert({ 
+            status: "incomplete", 
+            onboarding_step: 1,
+            nickname: tgFullName, 
+            handles: tgUsername ? { telegram: tgUsername } : null,
+            tg_language_code: tgLang,
+            tg_is_premium: tgPremium
+          }).select("node_id").single();
+
+          if (newNode) {
+            const newAnon = "anon_" + crypto.randomUUID().replace(/-/g, "").slice(0, 32);
+            Promise.all([
+              db().from("node_channels").insert({ node_id: newNode.node_id, channel: "telegram", channel_identifier: String(userId), is_primary: true }),
+              db().from("profiles").insert({ node_id: newNode.node_id, cash_balance: 0, cash_lifetime: 0, cash_withdrawn: 0, tickets_current: 0, tickets_lifetime: 0, drops_completed: 0, bot_questions_answered: 0, traps_passed: 0, traps_failed: 0, current_streak: 0, best_streak: 0 }),
+              db().from("anonymous_id_map").insert({ node_id: newNode.node_id, anonymous_id: newAnon })
+            ]).catch(e => console.error(e));
+            node = { node_id: newNode.node_id, status: "incomplete", nickname: tgFullName };
+          }
+        } 
+        // Si ya existía, NO tocamos su Nickname (respetamos el del Onboarding)
+        
+        const { data: stepData } = await db().from("nodes").select("onboarding_step").eq("node_id", node?.node_id).limit(1);
+        const currentStep = stepData?.[0]?.onboarding_step || 1;
+        const displayName = node?.nickname || tgFullName || "Node";
+        
+        if (node?.status === "incomplete") {
+          if (currentStep <= 1) {
+            await tgSend("sendMessage", { chat_id: chatId, text: `⚡ <b>BRUTAL</b>\n\nHola ${displayName}.\n\nRegistrate para jugar Drops, ganar plata real y competir por premios.`, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🔥 Entrar", web_app: { url: `https://brutal.up.railway.app/entrar` } }]] } });
+          } else {
+            await tgSend("sendMessage", { chat_id: chatId, text: `📝 Hola ${displayName}, te quedaste por la mitad.\n\nCompletá tu registro para asegurar tu lugar en la fila.`, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "📝 Completar registro", web_app: { url: `https://brutal.up.railway.app/entrar` } }]] } });
+          }
+          return;
+        }
+        
+        if (node?.status !== "active") {
+          const msgs: any = { pending: `⏳ Hola ${displayName}, tu cuenta está en revisión. Te avisamos cuando estés dentro.`, blocked: "🚫 Tu cuenta fue suspendida.", rejected: "❌ Tu solicitud no fue aprobada." };
+          await tgSend("sendMessage", { chat_id: chatId, text: msgs[node?.status || "pending"] || "⚠️ Tu cuenta no está activa.", parse_mode: "HTML" });
+          return;
+        }
+        
+        const { data: activeDropRows } = await db().from("drops").select("drop_id, name").eq("status", "active").limit(1);
+        const activeDrop = activeDropRows?.[0];
+        let welcomeText = `⚡ <b>BRUTAL</b>\n\nBienvenido de vuelta, ${displayName}.\n\nUsá /drop para jugar, /perfil para ver tu balance, /leaderboard para el ranking.`;
+        let keyboard: any[] = [];
+
+        if (activeDrop) {
+          const { data: done } = await db().from("sessions").select("session_id").eq("node_id", node.node_id).eq("drop_id", activeDrop.drop_id).in("status", ["completed", "claimed"]).limit(1);
+          if (done?.[0]) {
+            welcomeText += `\n\n✅ Ya jugaste <b>${activeDrop.name}</b>. Quedate atento a nuevas preguntas para sumar tickets 🎟️.`;
+            keyboard = [[{ text: "📊 Ver mi Perfil", web_app: { url: `https://brutal.up.railway.app/?screen=profile` } }]];
+          } else {
+            welcomeText += `\n\n🎯 <b>${activeDrop.name}</b> está activo. ¡Entrá a jugar!`;
+            keyboard = [[{ text: "▶️ Jugar Drop", web_app: { url: `https://brutal.up.railway.app/` } }]];
+          }
+        } else {
+           welcomeText += `\n\n😴 No hay ningún Drop activo en este momento.`;
+           keyboard = [[{ text: "📊 Ver mi Perfil", web_app: { url: `https://brutal.up.railway.app/?screen=profile` } }]];
+        }
+        await tgSend("sendMessage", { chat_id: chatId, text: welcomeText, parse_mode: "HTML", reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined });
+        return;
+      }
+
+      if (text.startsWith("/drop")) {
+        const chatId = update.message.chat.id;
+        const userId = update.message.from.id;
+        const node = await resolveNode(userId);
+        
+        if (!node) {
+          await tgSend("sendMessage", { chat_id: chatId, text: "⚡ Todavía no sos parte de <b>BRUTAL</b>.\n\nRegistrate para jugar Drops.", parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🔥 Entrar", web_app: { url: `https://brutal.up.railway.app/entrar` } }]] } });
+          return;
+        }
+        if (node.status !== "active") {
+          await tgSend("sendMessage", { chat_id: chatId, text: "⚠️ Tu cuenta no está activa." });
+          return;
+        }
+        const { data: activeDropRows } = await db().from("drops").select("drop_id, name").eq("status", "active").limit(1);
+        const activeDrop = activeDropRows?.[0];
+        if (!activeDrop) {
+          await tgSend("sendMessage", { chat_id: chatId, text: "😴 No hay ningún Drop activo ahora.", parse_mode: "HTML" });
+          return;
+        }
+        const { data: done } = await db().from("sessions").select("session_id").eq("node_id", node.node_id).eq("drop_id", activeDrop.drop_id).in("status", ["completed", "claimed"]).limit(1);
+        if (done?.[0]) {
+          await tgSend("sendMessage", { chat_id: chatId, text: `✅ Ya jugaste <b>${activeDrop.name}</b>.`, parse_mode: "HTML" });
+          return;
+        }
+        await tgSend("sendMessage", { chat_id: chatId, text: `🎯 <b>${activeDrop.name}</b> está activo.`, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "▶️ Jugar", web_app: { url: `https://brutal.up.railway.app` } }]] } });
+        return;
+      }
+
+      if (text.startsWith("/leaderboard")) {
+        const chatId = update.message.chat.id;
+        const { data } = await db().from("profiles").select("tickets_current, nodes(nickname)").order("tickets_current", { ascending: false }).limit(10);
+        let leadText = "🏆 <b>LEADERBOARD</b>\n\n";
+        data?.forEach((p: any, i: number) => {
+            const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}.`;
+            leadText += `${medal} <b>${p.nodes?.nickname || "Anónimo"}</b> — ${p.tickets_current || 0} 🎟️\n`;
+        });
+        await tgSend("sendMessage", { chat_id: chatId, text: leadText, parse_mode: "HTML" });
+        return;
+      }
+
+      if (text.startsWith("/perfil")) {
+        const chatId = update.message.chat.id;
+        const userId = update.message.from.id;
+        const node = await resolveNode(userId);
+        if (!node) {
+           await tgSend("sendMessage", { chat_id: chatId, text: "⚠️ No estás registrado." });
+           return;
+        }
+        
+        const { data: profile } = await db().from("profiles").select("cash_balance, tickets_current, tickets_lifetime, drops_completed, bot_questions_answered").eq("node_id", node.node_id).single();
+        const { data: nd } = await db().from("nodes").select("nickname, compass_archetype, referral_code").eq("node_id", node.node_id).single();
+        const p = profile || {};
+        
+        const perfText = `⚡ <b>Tu Perfil</b>\n\n👤 <b>${nd?.nickname || "Node"}</b>\n${nd?.compass_archetype ? `🧭 ${nd.compass_archetype}\n` : ""}\n💰 Balance: <b>$${p.cash_balance || 0}</b>\n🎟️ Tickets (season): <b>${p.tickets_current || 0}</b>\n🎟️ Tickets (lifetime): <b>${p.tickets_lifetime || 0}</b>\n📦 Drops completados: <b>${p.drops_completed || 0}</b>\n🤖 Bot preguntas: <b>${p.bot_questions_answered || 0}</b>\n\n🔗 Tu código: <code>${nd?.referral_code || "—"}</code>`;
+        await tgSend("sendMessage", { chat_id: chatId, text: perfText, parse_mode: "HTML" });
+        return;
+      }
+
+      if (text.startsWith("/help")) {
+        const chatId = update.message.chat.id;
+        await tgSend("sendMessage", {
+          chat_id: chatId, text: `⚡ <b>BRUTAL — Comandos</b>\n\n/start — Iniciar\n/drop — Jugar el Drop activo\n/leaderboard — Ver ranking\n/perfil — Tu perfil y balance\n/help — Ver ayuda\n\nLos Drops se publican semanalmente. Respondé rápido, ganá cash y tickets.`, parse_mode: "HTML",
+        });
+        return;
+      }
+
     } catch (e: any) {
-       console.error("❌ [WEBHOOK] Excepción fatal:", e);
+       console.error("❌ [WEBHOOK] Excepción fatal en processWebhook:", e);
     }
   };
 
-  // 2. FIX CRÍTICO: Usamos AWAIT para que el servidor no mate el proceso antes de tiempo
+  // 3. FIX CRÍTICO: Forzamos la ejecución síncrona
   await processWebhook();
   
   return c.json({ ok: true });
@@ -2179,7 +2340,6 @@ app.post("/bot/webhook", async (c) => {
 // ============================================================================
 // ANALYSIS
 // ============================================================================
-
 app.get("/analysis/responses", requirePanel, async (c) => {
   const dropId = c.req.query("drop_id");
   let q = db().from("responses")
