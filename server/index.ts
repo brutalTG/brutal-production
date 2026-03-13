@@ -1832,32 +1832,41 @@ app.post("/bot/questions", requirePanel, async (c) => {
   const body = await c.req.json();
   const { text, options, imageUrl, rewardTickets } = body;
 
-  // 1. Primero creamos el registro obligatorio en la tabla 'questions'
-  const { data: q, error: qErr } = await db().from("questions").insert({
+  const questionId = crypto.randomUUID();
+  const botQuestionId = crypto.randomUUID();
+
+  // 1. Forzamos la creación en questions con UUID explícito
+  const { error: qErr } = await db().from("questions").insert({
+    question_id: questionId,
     type: "bot_question",
     label: text,
     config: { options, imageUrl },
     reward_tickets: rewardTickets || 0,
     reward_cash: 0
-  }).select("question_id").single();
+  });
 
-  if (qErr) return c.json({ error: qErr.message }, 500);
+  if (qErr) {
+    console.error("[BOT] Error DB questions:", qErr);
+    return c.json({ error: `Error base (questions): ${qErr.message}` }, 500);
+  }
 
-  // 2. Ahora sí, creamos el registro del bot vinculándolo
-  const { data: bq, error: bqErr } = await db().from("bot_questions").insert({
-    bot_question_id: crypto.randomUUID(),
-    question_id: q.question_id, // <-- ESTO ES LO QUE FALTABA
+  // 2. Creamos en bot_questions
+  const { error: bqErr } = await db().from("bot_questions").insert({
+    bot_question_id: botQuestionId,
+    question_id: questionId,
     message_config: { text, options, imageUrl, rewardTickets },
     total_sent: 0,
     total_answered: 0,
-  }).select("bot_question_id").single();
+    bot_name: "BRUTAL", // Por si la DB exige que no sea nulo
+  });
 
   if (bqErr) {
-    // Si falla, hacemos limpieza
-    await db().from("questions").delete().eq("question_id", q.question_id);
-    return c.json({ error: bqErr.message }, 500);
+    console.error("[BOT] Error DB bot_questions:", bqErr);
+    await db().from("questions").delete().eq("question_id", questionId);
+    return c.json({ error: `Error base (bot_questions): ${bqErr.message}` }, 500);
   }
-  return c.json({ ok: true, id: bq.bot_question_id });
+
+  return c.json({ ok: true, id: botQuestionId });
 });
 
 // 3. Actualizar pregunta del bot
@@ -1868,19 +1877,19 @@ app.put("/bot/questions/:id", requirePanel, async (c) => {
   const { data: bq } = await db().from("bot_questions").select("question_id").eq("bot_question_id", bqId).single();
   if (!bq) return c.json({ error: "Not found" }, 404);
 
-  // Actualizamos la tabla principal
-  await db().from("questions").update({
+  const { error: qErr } = await db().from("questions").update({
     label: text,
     config: { options, imageUrl },
     reward_tickets: rewardTickets || 0,
   }).eq("question_id", bq.question_id);
 
-  // Actualizamos la tabla del bot
-  const { error } = await db().from("bot_questions").update({
+  if (qErr) return c.json({ error: qErr.message }, 500);
+
+  const { error: bqErr } = await db().from("bot_questions").update({
     message_config: { text, options, imageUrl, rewardTickets },
   }).eq("bot_question_id", bqId);
 
-  if (error) return c.json({ error: error.message }, 500);
+  if (bqErr) return c.json({ error: bqErr.message }, 500);
   return c.json({ ok: true });
 });
 
