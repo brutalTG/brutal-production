@@ -168,7 +168,7 @@ function SingleSegmentPicker({
 
 // ── Multi Segment Picker (Para Preguntas) ────────────────────
 
-function BotSegmentSelector({ selectedIds, onChange }: { selectedIds: string[], onChange: (ids: string[]) => void }) {
+function BotSegmentSelector({ selectedIds = [], onChange }: { selectedIds: string[], onChange: (ids: string[]) => void }) {
   const [segments, setSegments] = useState<SegmentOption[]>([]);
   
   useEffect(() => {
@@ -177,9 +177,15 @@ function BotSegmentSelector({ selectedIds, onChange }: { selectedIds: string[], 
       .catch(() => {});
   }, []);
 
+  // FIX: Array seguro e inmutable para evitar bugs de selección cruzada
+  const safeSelected = Array.isArray(selectedIds) ? selectedIds : [];
+
   const toggleSegment = (id: string) => {
-    if (selectedIds.includes(id)) onChange(selectedIds.filter((s) => s !== id));
-    else onChange([...selectedIds, id]);
+    if (safeSelected.includes(id)) {
+      onChange(safeSelected.filter((s) => s !== id));
+    } else {
+      onChange([...safeSelected, id]);
+    }
   };
 
   if (segments.length === 0) return null;
@@ -191,11 +197,12 @@ function BotSegmentSelector({ selectedIds, onChange }: { selectedIds: string[], 
       </label>
       <div className="flex flex-wrap gap-1.5">
         {segments.map((seg) => {
-          const isSelected = selectedIds.includes(seg.segmentId);
+          const isSelected = safeSelected.includes(seg.segmentId);
           return (
             <button
               key={seg.segmentId}
-              onClick={() => toggleSegment(seg.segmentId)}
+              type="button" // Previene que el formulario se envíe por error
+              onClick={(e) => { e.preventDefault(); toggleSegment(seg.segmentId); }}
               className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
                 isSelected ? "bg-purple-500/15 border-purple-500/30 text-purple-300" : ""
               }`}
@@ -212,6 +219,10 @@ function BotSegmentSelector({ selectedIds, onChange }: { selectedIds: string[], 
     </div>
   );
 }
+
+// (Dentro de QuestionForm, asegurate de que el estado inicial también sea inmutable)
+// Busca la línea donde defines segmentIds y cambiala por esto:
+// const [segmentIds, setSegmentIds] = useState<string[]>(Array.isArray(initial?.segmentIds) ? [...initial.segmentIds] : []);
 
 function TabBar({ active, onChange }: { active: BotTab; onChange: (t: BotTab) => void }) {
   const tabs: { id: BotTab; label: string; icon: typeof Bot }[] = [
