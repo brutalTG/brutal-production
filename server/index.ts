@@ -140,6 +140,40 @@ async function anonId(nodeId: string) {
   return created.anonymous_id;
 }
 
+// Motor que evalúa si un usuario cumple las reglas de un segmento
+function evaluateSegment(node: any, filters: any): boolean {
+  if (!filters || Object.keys(filters).length === 0) return true; // Si no hay filtros, pasa.
+
+  // Filtro de Edad
+  if (filters.age || filters.min_age !== undefined || filters.max_age !== undefined) {
+    const nodeAge = parseInt(node.age);
+    if (isNaN(nodeAge)) return false; // Si pide edad y el usuario no la cargó, rebota.
+    
+    const min = filters.age?.min ?? filters.min_age;
+    const max = filters.age?.max ?? filters.max_age;
+    
+    if (min !== undefined && nodeAge < min) return false;
+    if (max !== undefined && nodeAge > max) return false;
+  }
+
+  // Filtro de Género
+  if (Array.isArray(filters.gender) && filters.gender.length > 0) {
+    if (!filters.gender.includes(node.gender)) return false;
+  }
+
+  // Filtro de Ubicación (Provincia)
+  if (Array.isArray(filters.location_province) && filters.location_province.length > 0) {
+    if (!filters.location_province.includes(node.location_province)) return false;
+  }
+
+  // Filtro de Arquetipo
+  if (Array.isArray(filters.compass_archetype) && filters.compass_archetype.length > 0) {
+    if (!filters.compass_archetype.includes(node.compass_archetype)) return false;
+  }
+
+  return true; // Si superó todas las trabas, hace match.
+}
+
 // ============================================================================
 // FORMAT HELPERS — DB rows → Frontend format
 // ============================================================================
@@ -309,27 +343,76 @@ app.get("/gate", requireTelegram, async (c) => {
 // ============================================================================
 
 app.get("/active-drop", async (c) => {
+  // 1. Identificamos discretamente quién está pidiendo el Drop
+  const initData = c.req.header("X-Telegram-Init-Data");
+  const user = validateInitData(initData || "");
+  let fullNode = null;
+
+  if (user) {
+    const nodeBasic = await resolveNode(user.id);
+    if (nodeBasic) {
+      // Traemos toda su data (edad, género, etc) para evaluralo
+      const { data } = await db().from("nodes").select("*").eq("node_id", nodeBasic.node_id).single();
+      fullNode = data;
+    }
+  }
+
+  // 2. Buscamos el Drop activo
   const { data: dropRows } = await db()
     .from("drops").select("*").eq("status", "active")
     .order("published_at", { ascending: false }).limit(1);
   const dropRow = dropRows?.[0];
   if (!dropRow) return c.json({ error: "No active drop" }, 404);
+
+  // 3. Buscamos todas las preguntas del drop
   const { data: dqRows } = await db()
     .from("drop_questions")
     .select("position, reward_cash_override, reward_tickets_override, questions(*)")
     .eq("drop_id", dropRow.drop_id).order("position", { ascending: true });
-  if (dqRows?.length) return c.json(dbToPlayableDrop(dropRow, dqRows));
-  const cfg = dropRow.config || {};
-  if (cfg.questions?.length) {
-    return c.json({
-      id: dropRow.drop_id, name: dropRow.name, version: 1,
-      timeoutMessage: cfg.timeoutMessage || "Brutal eligio por vos.",
-      multiplierCheckpoints: cfg.multiplierCheckpoints || {},
-      reveal: cfg.reveal || { title: "", description: "", archetypes: [] },
-      splash: cfg.splash || undefined, questions: cfg.questions,
+
+  // 4. Traemos todos los segmentos de la DB a la memoria
+  const { data: segments } = await db().from("segments").select("*");
+  const segmentMap = new Map();
+  segments?.forEach((s: any) => segmentMap.set(s.segment_id, s.filters));
+
+  // 5. Armamos el mazo base
+  const playableDrop = dbToPlayableDrop(dropRow, dqRows || []);
+
+  // 6. LA MAGIA: Filtramos las cartas según el perfil del usuario
+  if (fullNode) {
+    playableDrop.questions = playableDrop.questions.filter((q: any) => {
+      const segmentIds = q.segmentIds || [];
+      // Si la carta no tiene segmentos, es pública. Pasa de largo.
+      if (segmentIds.length === 0) return true; 
+
+      // Si tiene segmentos, el usuario debe cumplir con AL MENOS UNO para ver la carta
+      return segmentIds.some((segId: string) => {
+        const filters = segmentMap.get(segId);
+        return evaluateSegment(fullNode, filters);
+      });
     });
+  } else {
+    // Si no está registrado o es una vista previa pública, solo ve las cartas sin segmentar
+    playableDrop.questions = playableDrop.questions.filter((q: any) => !q.segmentIds || q.segmentIds.length === 0);
   }
-  return c.json({ error: "Active drop has no questions" }, 404);
+
+  // Fallback por si el Drop estaba vacío desde el panel o el filtro borró todas las cartas
+  if (playableDrop.questions.length === 0 && !dqRows?.length) {
+    const cfg = dropRow.config || {};
+    if (cfg.questions?.length) {
+       // Lógica vieja de fallback (sin filtro dinámico)
+       return c.json({
+         id: dropRow.drop_id, name: dropRow.name, version: 1,
+         timeoutMessage: cfg.timeoutMessage || "Brutal eligio por vos.",
+         multiplierCheckpoints: cfg.multiplierCheckpoints || {},
+         reveal: cfg.reveal || { title: "", description: "", archetypes: [] },
+         splash: cfg.splash || undefined, questions: cfg.questions,
+       });
+    }
+    return c.json({ error: "Active drop has no questions for this user" }, 404);
+  }
+
+  return c.json(playableDrop);
 });
 
 app.put("/active-drop", requirePanel, async (c) => {
