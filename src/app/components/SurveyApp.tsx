@@ -271,11 +271,17 @@ export default function SurveyApp() {
   const { status: nodeStatus, nickname } = useNodeGate();
   const navigate = useNavigate();
 
+  // NUEVO: Leemos a qué pantalla intenta ir el usuario
+  const params = new URLSearchParams(window.location.search);
+  const targetScreen = params.get("screen");
+  const isProfileOrLeaderboard = targetScreen === "profile" || targetScreen === "leaderboard";
+  const isPreview = params.has("preview");
+
   // Shared result page intercept
   const sharedResult = parseSharedResult();
   if (sharedResult) return <SharedResultPage data={sharedResult} />;
 
-  // Redirecciones del patovica:
+  // Redirecciones del patovica
   useEffect(() => {
     if (nodeStatus === "not_found") {
       console.log("[BRUTAL] Usuario no registrado. Redirigiendo al onboarding...");
@@ -283,16 +289,32 @@ export default function SurveyApp() {
     }
   }, [nodeStatus, navigate]);
 
-  // --- NUEVO: Escudo Local contra el Direct Link Loophole ---
+  // TRUCO ADMIN: Si entrás en modo preview, borramos el bloqueo de tu celular
+  if (isPreview) {
+    localStorage.removeItem(`brutal_drop_completed_${drop.id}`);
+  }
+
+  // Leemos si el celular recuerda que ya jugaste
   const hasPlayedLocally = localStorage.getItem(`brutal_drop_completed_${drop.id}`);
 
-  // Node gate: block access for non-active nodes
-  if (nodeStatus === "loading" || nodeStatus === "pending" || nodeStatus === "blocked" || nodeStatus === "segment_denied" || nodeStatus === "completed") {
+  // 1. BLOQUEOS DUROS: Nadie pasa si la app está cargando, si estás baneado o en fila
+  if (nodeStatus === "loading" || nodeStatus === "pending" || nodeStatus === "blocked") {
     return <NodeGateScreen status={nodeStatus} nickname={nickname} />;
   }
 
-  // Escudo Local: Si ya lo completó en este dispositivo, bloquea antes de cargar
-  if (hasPlayedLocally) {
+  // 2. PASE LIBRE: Si solo querés ver el Perfil o Leaderboard, pasás de largo el bloqueo de "Drop Completo"
+  if (isProfileOrLeaderboard) {
+    if (nodeStatus === "not_found") return null;
+    return <SurveyCore drop={drop} source={source} />;
+  }
+
+  // 3. BLOQUEOS DE JUEGO: Solo aplican si intentan entrar al Drop
+  if (nodeStatus === "segment_denied") {
+    return <NodeGateScreen status="segment_denied" nickname={nickname} />;
+  }
+
+  // EL ESCUDO FINAL: Si el backend o el celular dicen que ya jugaste, te frena acá
+  if (nodeStatus === "completed" || hasPlayedLocally) {
     return <NodeGateScreen status="completed" nickname={nickname} />;
   }
   
@@ -300,7 +322,7 @@ export default function SurveyApp() {
       return null;
   }
 
-  // Si pasa todo, carga el juego
+  // Si pasó todos los controles, arranca el juego
   return <SurveyCore drop={drop} source={source} />;
 }
 
