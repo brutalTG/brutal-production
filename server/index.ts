@@ -298,7 +298,7 @@ app.get("/gate", requireTelegram, async (c) => {
   if (dropId) {
     const { data: done } = await db()
       .from("sessions").select("session_id")
-      .eq("node_id", node.node_id).eq("drop_id", dropId).eq("status", "completed").limit(1);
+      .eq("node_id", node.node_id).eq("drop_id", dropId).in("status", ["completed", "claimed"]).limit(1);
     if (done?.[0]) return c.json({ status: "completed" });
   }
   return c.json({ status: "granted", node_id: node.node_id });
@@ -500,7 +500,9 @@ app.post("/sessions/start", requireTelegram, async (c) => {
     .select("session_id, current_position, status")
     .eq("node_id", node.node_id).eq("drop_id", drop_id).limit(1);
   if (existing?.[0]) {
-    if (existing[0].status === "completed") return c.json({ error: "Already completed" }, 409);
+    if (existing[0].status === "completed" || existing[0].status === "claimed") {
+      return c.json({ error: "Already completed" }, 409);
+    }
     return c.json({ session_id: existing[0].session_id, resumed: true, current_index: existing[0].current_position || 0 });
   }
   const { data: session, error } = await db().from("sessions").insert({
@@ -512,6 +514,7 @@ app.post("/sessions/start", requireTelegram, async (c) => {
   return c.json({ session_id: session.session_id, resumed: false, current_index: 0 });
 });
 
+// FIX: AHORA ESTA RUTA SOLO GUARDA LAS MÉTRICAS DE LA SESIÓN, NO REGALA MONEDAS
 app.post("/sessions/complete", requireTelegram, async (c) => {
   const user = c.get("tgUser");
   const { session_id, archetype_result, bic_scores, multiplier: clientMultiplier } = await c.req.json();
@@ -536,18 +539,6 @@ app.post("/sessions/complete", requireTelegram, async (c) => {
   }
   const finalMultiplier = serverMultiplier > 1 ? serverMultiplier : (clientMultiplier || 1);
 
-  await db().from("sessions").update({ multiplier: finalMultiplier }).eq("session_id", session_id);
-
-  const { data: rewards } = await db().from("responses")
-    .select("reward_type, reward_value, reward_granted").eq("session_id", session_id);
-  const baseCash = rewards?.filter((r: any) => r.reward_type === "cash" && r.reward_granted)
-    .reduce((s: any, r: any) => s + Number(r.reward_value || 0), 0) || 0;
-  const baseTickets = rewards?.filter((r: any) => r.reward_type === "golden_ticket" && r.reward_granted)
-    .reduce((s: any, r: any) => s + Number(r.reward_value || 0), 0) || 0;
-  
-  const totalCash = Number((baseCash * finalMultiplier).toFixed(4));
-  const totalTickets = Math.round(baseTickets * finalMultiplier);
-
   const { data: traps } = await db().from("responses")
     .select("question_type, raw_response").eq("session_id", session_id)
     .in("question_type", ["trap", "trap_silent"]);
@@ -559,38 +550,18 @@ app.post("/sessions/complete", requireTelegram, async (c) => {
   const avgLatency = latencies?.length
     ? Math.round(latencies.reduce((s: any, r: any) => s + r.latency_ms, 0) / latencies.length) : null;
     
+  // Solo actualizamos la sesión a "completed". Las monedas se dan en /claim-rewards
   const { error } = await db().from("sessions").update({
     status: "completed", completed_at: new Date().toISOString(),
-    total_cash_earned: totalCash, total_tickets_earned: totalTickets,
     multiplier: finalMultiplier,
     trap_score: trapsPassed, traps_passed: trapsPassed, traps_failed: trapsFailed,
     avg_latency_ms: avgLatency,
     archetype_result: archetype_result || null, bic_scores: bic_scores || null,
   }).eq("session_id", session_id).eq("node_id", node.node_id);
+  
   if (error) return c.json({ error: error.message }, 500);
 
-  const { data: sessionBefore } = await db().from("sessions")
-    .select("status").eq("session_id", session_id).limit(1);
-  const alreadyCompleted = sessionBefore?.[0]?.status === "completed";
-
-  const { data: prof } = await db().from("profiles")
-    .select("drops_completed, cash_balance, cash_lifetime, tickets_current, tickets_lifetime")
-    .eq("node_id", node.node_id).limit(1);
-  if (prof?.[0]) {
-    const cashBonus = totalCash - baseCash;
-    const ticketBonus = totalTickets - baseTickets;
-    await db().from("profiles").update({
-      ...(alreadyCompleted ? {} : { drops_completed: (prof[0].drops_completed || 0) + 1 }),
-      last_drop_at: new Date().toISOString(),
-      cash_balance: Number(prof[0].cash_balance || 0) + cashBonus,
-      cash_lifetime: Number(prof[0].cash_lifetime || 0) + cashBonus,
-      tickets_current: (prof[0].tickets_current || 0) + ticketBonus,
-      tickets_lifetime: (prof[0].tickets_lifetime || 0) + ticketBonus,
-    }).eq("node_id", node.node_id);
-  }
-
-  return c.json({ ok: true, total_cash: totalCash, total_tickets: totalTickets,
-    trap_score: `${trapsPassed}/${traps?.length || 0}` });
+  return c.json({ ok: true, trap_score: `${trapsPassed}/${traps?.length || 0}` });
 });
 
 // ============================================================================
@@ -653,12 +624,14 @@ app.post("/sessions/notify", requireTelegram, async (c) => {
 // RESPONSES
 // ============================================================================
 
+// FIX: AHORA ESTA RUTA SOLO GUARDA LAS RESPUESTAS, NO SUMA MONEDAS A LOS PERFILES
 app.post("/responses", requireTelegram, async (c) => {
   const user = c.get("tgUser");
   const body = await c.req.json();
   const { session_id, drop_id, question_id, position_in_drop, question_type,
     choice, choice_index, text_response, slider_value, ranking_result,
     rafaga_choices, raw_response, latency_ms, source } = body;
+  
   if (!session_id || !question_id) return c.json({ error: "session_id and question_id required" }, 400);
   const node = await resolveNode(user.id);
   if (!node || node.status !== "active") return c.json({ error: "Not authorized" }, 403);
@@ -677,6 +650,7 @@ app.post("/responses", requireTelegram, async (c) => {
     if (dqOverride?.[0]?.reward_cash_override != null) rewardCash = dqOverride[0].reward_cash_override;
     if (dqOverride?.[0]?.reward_tickets_override != null) rewardTickets = dqOverride[0].reward_tickets_override;
   }
+  
   const minLatency = qConfig?.[0]?.min_latency_ms || 400;
   const belowThreshold = (latency_ms || 0) < minLatency;
   const rewardGranted = !belowThreshold;
@@ -685,14 +659,11 @@ app.post("/responses", requireTelegram, async (c) => {
   if (rewardCash > 0) { rewardType = "cash"; rewardValue = rewardCash; }
   else if (rewardTickets > 0) { rewardType = "golden_ticket"; rewardValue = rewardTickets; }
   
-  const { data: sess } = await db().from("sessions")
-    .select("multiplier").eq("session_id", session_id).limit(1);
-  const multiplier = sess?.[0]?.multiplier || 1;
   const { data: activeSeason } = await db().from("seasons")
     .select("season_id").eq("is_active", true).limit(1);
   const seasonId = activeSeason?.[0]?.season_id || null;
-  const finalRewardValue = rewardGranted ? (rewardType === "cash" ? Number((rewardValue * multiplier).toFixed(4)) : Math.round(rewardValue * multiplier)) : 0;
-  
+
+  // Insertamos la respuesta con sus datos crudos
   const { data: resp, error } = await db().from("responses").insert({
     node_id: node.node_id, anonymous_id, session_id, drop_id: drop_id || null,
     question_id, position_in_drop: position_in_drop ?? null,
@@ -701,38 +672,19 @@ app.post("/responses", requireTelegram, async (c) => {
     slider_value: slider_value ?? null, ranking_result: ranking_result || null,
     rafaga_choices: rafaga_choices || null, raw_response: raw_response || null,
     latency_ms: latency_ms || null, reward_type: rewardType,
-    reward_value: finalRewardValue, reward_granted: rewardGranted,
-    multiplier_at_time: multiplier, season_id: seasonId,
+    reward_value: rewardValue, reward_granted: rewardGranted,
+    multiplier_at_time: body.multiplier_at_position || 1, season_id: seasonId,
     source: "drop",
   }).select("response_id").single();
+  
   if (error) return c.json({ error: error.message }, 500);
   
-  if (rewardGranted && finalRewardValue > 0 && rewardType) {
-    if (rewardType === "cash") {
-      const { data: p } = await db().from("profiles").select("cash_balance, cash_lifetime").eq("node_id", node.node_id).limit(1);
-      if (p?.[0]) await db().from("profiles").update({
-        cash_balance: (p[0].cash_balance || 0) + finalRewardValue,
-        cash_lifetime: (p[0].cash_lifetime || 0) + finalRewardValue,
-      }).eq("node_id", node.node_id);
-    } else {
-      const { data: p } = await db().from("profiles").select("tickets_current, tickets_lifetime").eq("node_id", node.node_id).limit(1);
-      if (p?.[0]) await db().from("profiles").update({
-        tickets_current: (p[0].tickets_current || 0) + finalRewardValue,
-        tickets_lifetime: (p[0].tickets_lifetime || 0) + finalRewardValue,
-      }).eq("node_id", node.node_id);
-    }
-    const { data: pAfter } = await db().from("profiles")
-      .select("cash_balance, tickets_current").eq("node_id", node.node_id).limit(1);
-    await db().from("transactions").insert({
-      node_id: node.node_id, type: rewardType, amount: finalRewardValue,
-      source: "drop_card", source_id: question_id,
-      balance_after: rewardType === "cash" ? pAfter?.[0]?.cash_balance : pAfter?.[0]?.tickets_current,
-    });
-  }
+  // Actualizamos el progreso de la sesión
   await db().from("sessions").update({ current_position: (position_in_drop ?? 0) + 1 })
     .eq("session_id", session_id);
+    
   return c.json({ response_id: resp.response_id, below_threshold: belowThreshold,
-    reward_granted: rewardGranted, reward_type: rewardType, reward_value: finalRewardValue });
+    reward_granted: rewardGranted, reward_type: rewardType, reward_value: rewardValue });
 });
 
 // ============================================================================
@@ -769,7 +721,6 @@ app.post("/apply", async (c) => {
   const compassChoicesFromBody = body.compass_choices || null;
   const brandChoices = body.brand_choices || null;
 
-  // EL SEGURO ANTIBALAS FINAL
   if (!telegramUserId && (!phone || phone === "telegram_verified")) {
     return c.json({ ok: false, error: "Missing Telegram ID or valid Phone" }, 400);
   }
@@ -794,7 +745,6 @@ app.post("/apply", async (c) => {
     if (ch?.[0]) existingNodeId = ch[0].node_id;
   }
 
-  // FIX: Forzamos estado ACTIVE directamente al completar
   const isComplete = nickname && age && gender;
   const finalStatus = isComplete ? "active" : "incomplete";
   const finalStep = isComplete ? 100 : 1;
@@ -825,7 +775,6 @@ app.post("/apply", async (c) => {
     if (nodeErr) return c.json({ ok: false, error: nodeErr.message }, 500);
     newNode = updatedNode;
   } else {
-    // Flujo normal (el usuario cargó a mano o el frontend llegó antes que el webhook)
     const insertData: any = {
       phone: normalPhone, nickname: nickname || null, age: age || null, gender: gender || null,
       location_province: locationProvince, location_city: locationCity,
@@ -858,7 +807,6 @@ app.post("/apply", async (c) => {
     }
   }
 
-  // FIX: Usamos UPSERT para evitar crasheos si las respuestas ya estaban guardadas
   if (compassRaw && typeof compassRaw === "object") {
     const { data: config } = await db().from("compass_config").select("rafagas").limit(1).single();
     const rafagaList = config?.rafagas || [];
@@ -899,7 +847,6 @@ app.post("/apply", async (c) => {
     );
   }
 
-  // MENSAJE DE AUTO-ACTIVACIÓN
   if (isComplete && telegramUserId && botToken()) {
     try {
       await fetch(`https://api.telegram.org/bot${botToken()}/sendMessage`, {
@@ -933,6 +880,7 @@ app.get("/apply/check", async (c) => {
   if (!data?.[0]) return c.json({ exists: false });
   return c.json({ exists: true, nodeId: data[0].node_id, referralCode: data[0].referral_code, onboardingStep: data[0].onboarding_step, status: data[0].status });
 });
+
 // ============================================================================
 // PROGRESSIVE ONBOARDING
 // ============================================================================
@@ -954,7 +902,6 @@ app.post("/apply/init", async (c) => {
   const tgId = secureTgId || body.telegram_user_id || body.telegramUserId;
   const { phone, referred_by_code, nickname, age, gender, location, phoneBrand } = body;
   
-  // EL SEGURO ANTIBALAS: Si no hay ID de Telegram Y tampoco hay un número manual real, bloqueamos la creación
   if (!tgId && (!phone || phone === "telegram_verified")) {
     return c.json({ ok: false, error: "Missing Telegram ID or valid Phone" }, 400);
   }
@@ -962,11 +909,9 @@ app.post("/apply/init", async (c) => {
   let normalPhone = null;
   if (phone && phone !== "telegram_verified") {
     let clean = String(phone).replace(/\D/g, "");
-    
     if (clean.length === 10) clean = "549" + clean; 
     else if (clean.length === 11 && clean.startsWith("9")) clean = "54" + clean; 
     else if (clean.length === 12 && clean.startsWith("54")) clean = "549" + clean.substring(2); 
-    
     if (!clean.startsWith("54") || clean.length < 12 || clean.length > 13) {
       return c.json({ ok: false, error: "Teléfono inválido. Verificá el código de área." }, 400);
     }
@@ -990,17 +935,13 @@ app.post("/apply/init", async (c) => {
 
   if (existing) {
     const updates: any = { ...tgFields };
-    
     if (normalPhone && !existing.phone) updates.phone = normalPhone;
     if (nickname) updates.nickname = nickname;
     if (age) updates.age = age;
     if (gender) updates.gender = gender;
     if (location) updates.location_province = location;
     if (phoneBrand) updates.phone_brand = phoneBrand;
-
-    if (nickname) {
-      updates.onboarding_step = 10;
-    }
+    if (nickname) updates.onboarding_step = 10;
 
     if (Object.keys(updates).length > 0) {
       await db().from("nodes").update(updates).eq("node_id", existing.node_id);
@@ -1020,16 +961,9 @@ app.post("/apply/init", async (c) => {
   }
 
   const { data: newNode, error: nodeErr } = await db().from("nodes").insert({
-    phone: normalPhone, 
-    status: "incomplete", 
-    onboarding_step: nickname ? 10 : 1, 
-    referred_by: referredBy, 
-    nickname: nickname || null,
-    age: age || null,
-    gender: gender || null,
-    location_province: location || null,
-    phone_brand: phoneBrand || null,
-    ...tgFields
+    phone: normalPhone, status: "incomplete", onboarding_step: nickname ? 10 : 1, 
+    referred_by: referredBy, nickname: nickname || null, age: age || null,
+    gender: gender || null, location_province: location || null, phone_brand: phoneBrand || null, ...tgFields
   }).select("node_id, referral_code, status, onboarding_step").single();
 
   if (nodeErr) return c.json({ ok: false, error: nodeErr.message }, 500);
@@ -1043,18 +977,13 @@ app.post("/apply/init", async (c) => {
   await anonId(newNode.node_id);
 
   if (tgId) {
-    const { data: existsCh } = await db().from("node_channels").select("id").eq("channel", "telegram").eq("channel_identifier", String(tgId)).limit(1);
-    if (!existsCh?.[0]) {
-      await db().from("node_channels").insert({
-        node_id: newNode.node_id, channel: "telegram",
-        channel_identifier: String(tgId), is_primary: true,
-      });
-    }
+    await db().from("node_channels").insert({
+      node_id: newNode.node_id, channel: "telegram", channel_identifier: String(tgId), is_primary: true,
+    });
   }
 
   return c.json({
-    ok: true, resumed: false,
-    nodeId: newNode.node_id, referralCode: newNode.referral_code,
+    ok: true, resumed: false, nodeId: newNode.node_id, referralCode: newNode.referral_code,
     onboardingStep: nickname ? 10 : 1, status: "incomplete",
   }, 201);
 });
@@ -1064,33 +993,26 @@ app.put("/apply/:nodeId/step", async (c) => {
   const body = await c.req.json();
   const { step, value } = body;
   if (!step || value === undefined) return c.json({ ok: false, error: "step and value required" }, 400);
-  const { data: nodes } = await db().from("nodes")
-    .select("node_id, status, onboarding_data").eq("node_id", nodeId).limit(1);
-  const node = nodes?.[0];
-  if (!node) return c.json({ ok: false, error: "Node not found" }, 404);
+  const { data: nodes } = await db().from("nodes").select("node_id, status, onboarding_data").eq("node_id", nodeId).limit(1);
+  if (!nodes?.[0]) return c.json({ ok: false, error: "Node not found" }, 404);
 
   const coreFields = ["phone", "nickname", "age", "gender", "location_province", "location_city", "phone_brand"];
-  
   if (coreFields.includes(step)) {
     let finalValue = value;
-    
     if (step === "phone") {
       let clean = String(value).replace(/\D/g, "");
-      
       if (clean.length === 10) clean = "549" + clean;
       else if (clean.length === 11 && clean.startsWith("9")) clean = "54" + clean;
       else if (clean.length === 12 && clean.startsWith("54")) clean = "549" + clean.substring(2);
-
       if (!clean.startsWith("54") || clean.length < 12 || clean.length > 13) {
          return c.json({ ok: false, error: "Teléfono inválido. Verificá el código de área." }, 400);
       }
       finalValue = "+" + clean;
     }
-
     const { error } = await db().from("nodes").update({ [step]: finalValue }).eq("node_id", nodeId);
     if (error) return c.json({ ok: false, error: error.message }, 500);
   } else {
-    const current = node.onboarding_data || {};
+    const current = nodes[0].onboarding_data || {};
     current[step] = value;
     const { error } = await db().from("nodes").update({ onboarding_data: current }).eq("node_id", nodeId);
     if (error) return c.json({ ok: false, error: error.message }, 500);
@@ -1098,7 +1020,7 @@ app.put("/apply/:nodeId/step", async (c) => {
 
   const stepOrder = ["phone", "nickname", "age", "gender", "location", "phone_brand", "occupation", "platforms", "spending", "financialStress"];
   const stepIdx = stepOrder.indexOf(step);
-  const newStep = stepIdx >= 0 ? stepIdx + 2 : (node.onboarding_data?._step || 1) + 1;
+  const newStep = stepIdx >= 0 ? stepIdx + 2 : (nodes[0].onboarding_data?._step || 1) + 1;
   await db().from("nodes").update({ onboarding_step: newStep }).eq("node_id", nodeId);
 
   return c.json({ ok: true, step, saved: true });
@@ -1147,13 +1069,10 @@ app.put("/apply/:nodeId/complete", async (c) => {
   const { data: nodes } = await db().from("nodes").select("node_id, status, phone").eq("node_id", nodeId).limit(1);
   if (!nodes?.[0]) return c.json({ ok: false, error: "Node not found" }, 404);
   
-  // FIX: Auto-activación. Lo pasamos directo a "active" y registramos la fecha de aprobación
   const { error } = await db().from("nodes").update({
     compass_vector: compass_vector || null, compass_archetype: compass_archetype || null,
     brand_vector: brand_vector || null, handles: handles || null, 
-    onboarding_step: 100, 
-    status: "active", 
-    approved_at: new Date().toISOString()
+    onboarding_step: 100, status: "active", approved_at: new Date().toISOString()
   }).eq("node_id", nodeId);
   if (error) return c.json({ ok: false, error: error.message }, 500);
   
@@ -1163,17 +1082,12 @@ app.put("/apply/:nodeId/complete", async (c) => {
   if (channel?.[0]?.channel_identifier && botToken()) {
     try {
       await fetch(`https://api.telegram.org/bot${botToken()}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chat_id: channel[0].channel_identifier,
           text: `🔥 <b>¡Tu cuenta ya está activa!</b>\n\nEstás oficialmente adentro de BRUTAL.\n\nJugá tu primer Drop ahora, ganá cash real y acumulá Golden Tickets para el sorteo de entradas al <b>Lollapalooza 2026</b>.\n\n🔔 <i>Importante: Activá las notificaciones de este chat para que te avisemos apenas salga un Drop nuevo.</i>`,
           parse_mode: "HTML",
-          reply_markup: {
-            inline_keyboard: [[
-              { text: "▶️ Jugar Primer Drop", web_app: { url: `https://brutal.up.railway.app/` } }
-            ]]
-          }
+          reply_markup: { inline_keyboard: [[ { text: "▶️ Jugar Primer Drop", web_app: { url: `https://brutal.up.railway.app/` } } ]] }
         }),
       });
     } catch (e) {
@@ -1323,15 +1237,65 @@ app.post("/season/reset", requirePanel, async (c) => {
 });
 
 // ============================================================================
-// CLAIMS
+// CLAIMS (FIX: AHORA MANEJA EL RECLAMO DE DROP Y EL RETIRO DE PLATA)
 // ============================================================================
 
 app.post("/claim-rewards", requireTelegram, async (c) => {
   const user = c.get("tgUser");
-  const { amount } = await c.req.json();
+  const body = await c.req.json();
   const node = await resolveNode(user.id);
   if (!node) return c.json({ error: "Not found" }, 404);
 
+  // 1. LÓGICA DE RECLAMO DE DROP (Viene de la App al terminar)
+  if (body.dropId || body.drop_id) {
+    const dropId = body.dropId || body.drop_id;
+    const coins = Number(body.coins || 0);
+    const finalTickets = Number(body.finalTickets || 0);
+
+    const { data: session } = await db()
+      .from("sessions").select("session_id, status").eq("node_id", node.node_id).eq("drop_id", dropId).limit(1);
+
+    if (!session?.[0]) return c.json({ error: "Session not found" }, 404);
+    
+    // EVITA DOBLE COBRO SI YA RECLAMÓ ESTE DROP
+    if (session[0].status === "claimed") {
+      return c.json({ ok: true, alreadyClaimed: true });
+    }
+
+    const { data: p } = await db().from("profiles").select("*").eq("node_id", node.node_id).single();
+    if (p) {
+      // Sumamos LA ÚNICA VEZ las monedas y tickets al perfil
+      await db().from("profiles").update({
+        drops_completed: (p.drops_completed || 0) + 1,
+        last_drop_at: new Date().toISOString(),
+        cash_balance: Number(p.cash_balance || 0) + coins,
+        cash_lifetime: Number(p.cash_lifetime || 0) + coins,
+        tickets_current: Number(p.tickets_current || 0) + finalTickets,
+        tickets_lifetime: Number(p.tickets_lifetime || 0) + finalTickets,
+      }).eq("node_id", node.node_id);
+
+      // Registramos las transacciones
+      if (coins > 0) {
+        await db().from("transactions").insert({
+          node_id: node.node_id, type: "cash", amount: coins, source: "drop_completion", source_id: dropId,
+          balance_after: Number(p.cash_balance || 0) + coins,
+        });
+      }
+      if (finalTickets > 0) {
+        await db().from("transactions").insert({
+          node_id: node.node_id, type: "golden_ticket", amount: finalTickets, source: "drop_completion", source_id: dropId,
+          balance_after: Number(p.tickets_current || 0) + finalTickets,
+        });
+      }
+    }
+
+    // Sellamos la sesión como cobrada
+    await db().from("sessions").update({ status: "claimed" }).eq("session_id", session[0].session_id);
+    return c.json({ ok: true, credited: { coins, tickets: finalTickets } });
+  }
+
+  // 2. LÓGICA DE RETIRO DE FONDOS ORIGINAL (Si no mandan dropId)
+  const { amount } = body;
   const { data: profile } = await db()
     .from("profiles").select("cash_balance, wallet_alias").eq("node_id", node.node_id).single();
   if (!profile) return c.json({ error: "Profile not found" }, 404);
@@ -1869,7 +1833,7 @@ app.post("/bot/webhook", async (c) => {
         let keyboard: any[] = [];
 
         if (activeDrop) {
-          const { data: done } = await db().from("sessions").select("session_id").eq("node_id", node.node_id).eq("drop_id", activeDrop.drop_id).eq("status", "completed").limit(1);
+          const { data: done } = await db().from("sessions").select("session_id").eq("node_id", node.node_id).eq("drop_id", activeDrop.drop_id).in("status", ["completed", "claimed"]).limit(1);
           if (done?.[0]) {
             text += `\n\n✅ Ya jugaste <b>${activeDrop.name}</b>. Quedate atento a nuevas preguntas para sumar tickets 🎟️.`;
             keyboard = [[{ text: "📊 Ver mi Perfil", web_app: { url: `https://brutal.up.railway.app/?screen=profile` } }]];
@@ -1920,7 +1884,7 @@ app.post("/bot/webhook", async (c) => {
           return;
         }
         
-        const { data: done } = await db().from("sessions").select("session_id").eq("node_id", node.node_id).eq("drop_id", activeDrop.drop_id).eq("status", "completed").limit(1);
+        const { data: done } = await db().from("sessions").select("session_id").eq("node_id", node.node_id).eq("drop_id", activeDrop.drop_id).in("status", ["completed", "claimed"]).limit(1);
         if (done?.[0]) {
           await tgSend("sendMessage", { chat_id: chatId, text: `✅ Ya jugaste <b>${activeDrop.name}</b>.\n\nQuedate atento que el bot te manda preguntas sueltas todo el tiempo y sumás tickets 🎟️ para el sorteo.`, parse_mode: "HTML" });
           return;
