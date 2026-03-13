@@ -1803,13 +1803,8 @@ app.post("/panel-auth", async (c) => {
 // ADMIN — BOT MANAGER
 // ============================================================================
 
-// 1. Listar preguntas del bot
 app.get("/bot/questions", requirePanel, async (c) => {
-  const { data, error } = await db()
-    .from("bot_questions")
-    .select("*")
-    .order("created_at", { ascending: false });
-
+  const { data, error } = await db().from("bot_questions").select("*").order("created_at", { ascending: false });
   if (error) return c.json({ error: error.message }, 500);
 
   const formatted = (data || []).map((bq: any) => ({
@@ -1818,43 +1813,37 @@ app.get("/bot/questions", requirePanel, async (c) => {
     options: bq.message_config?.options || [],
     imageUrl: bq.message_config?.imageUrl || null,
     rewardTickets: bq.message_config?.rewardTickets || 0,
+    segmentIds: bq.segment_ids || [], // Mapeamos los segmentos
     sentCount: bq.total_sent || 0,
     lastSentAt: bq.sent_at || null,
     createdAt: bq.created_at,
     updatedAt: bq.created_at,
   }));
-
   return c.json({ questions: formatted });
 });
 
-// 2. Crear nueva pregunta de bot
 app.post("/bot/questions", requirePanel, async (c) => {
   const body = await c.req.json();
-  const { text, options, imageUrl, rewardTickets } = body;
+  const { text, options, imageUrl, rewardTickets, segmentIds } = body;
 
   const questionId = crypto.randomUUID();
   const botQuestionId = crypto.randomUUID();
 
-  // 1. La creamos como "choice" para que la DB la acepte sin problemas
-  // y para que la analítica la entienda como una carta normal.
   const { error: qErr } = await db().from("questions").insert({
     question_id: questionId,
-    type: "choice", // <--- EL FIX ESTÁ ACÁ
+    type: "choice",
     label: text,
     config: { options, imageUrl },
     reward_tickets: rewardTickets || 0,
     reward_cash: 0
   });
 
-  if (qErr) {
-    console.error("[BOT] Error al crear en 'questions':", qErr);
-    return c.json({ error: `Error DB questions: ${qErr.message}` }, 500);
-  }
+  if (qErr) return c.json({ error: `Error DB questions: ${qErr.message}` }, 500);
 
-  // 2. Armamos el "sobre" para enviarla por Telegram
   const { error: bqErr } = await db().from("bot_questions").insert({
     bot_question_id: botQuestionId,
     question_id: questionId,
+    segment_ids: segmentIds || null, // Guardamos los segmentos
     message_config: { text, options, imageUrl, rewardTickets },
     total_sent: 0,
     total_answered: 0,
@@ -1862,19 +1851,15 @@ app.post("/bot/questions", requirePanel, async (c) => {
   });
 
   if (bqErr) {
-    console.error("[BOT] Error al crear en 'bot_questions':", bqErr);
-    // Limpiamos la basura si falló la segunda parte
     await db().from("questions").delete().eq("question_id", questionId);
     return c.json({ error: `Error DB bot_questions: ${bqErr.message}` }, 500);
   }
-
   return c.json({ ok: true, id: botQuestionId });
 });
 
-// 3. Actualizar pregunta del bot
 app.put("/bot/questions/:id", requirePanel, async (c) => {
   const bqId = c.req.param("id");
-  const { text, options, imageUrl, rewardTickets } = await c.req.json();
+  const { text, options, imageUrl, rewardTickets, segmentIds } = await c.req.json();
 
   const { data: bq } = await db().from("bot_questions").select("question_id").eq("bot_question_id", bqId).single();
   if (!bq) return c.json({ error: "Not found" }, 404);
@@ -1884,10 +1869,10 @@ app.put("/bot/questions/:id", requirePanel, async (c) => {
     config: { options, imageUrl },
     reward_tickets: rewardTickets || 0,
   }).eq("question_id", bq.question_id);
-
   if (qErr) return c.json({ error: qErr.message }, 500);
 
   const { error: bqErr } = await db().from("bot_questions").update({
+    segment_ids: segmentIds || null,
     message_config: { text, options, imageUrl, rewardTickets },
   }).eq("bot_question_id", bqId);
 
@@ -1895,21 +1880,14 @@ app.put("/bot/questions/:id", requirePanel, async (c) => {
   return c.json({ ok: true });
 });
 
-// 4. Eliminar pregunta de bot
 app.delete("/bot/questions/:id", requirePanel, async (c) => {
   const bqId = c.req.param("id");
   const { data: bq } = await db().from("bot_questions").select("question_id").eq("bot_question_id", bqId).single();
-  
-  // Borramos de la tabla bot
   await db().from("bot_questions").delete().eq("bot_question_id", bqId);
-  
-  // Borramos de la tabla principal
-  if (bq?.question_id) {
-    await db().from("questions").delete().eq("question_id", bq.question_id);
-  }
+  if (bq?.question_id) await db().from("questions").delete().eq("question_id", bq.question_id);
   return c.json({ ok: true });
 });
-// 5. Enviar pregunta via Telegram (Todos o Segmento)
+
 app.post("/bot/send-question/:id", requirePanel, async (c) => {
   const bqId = c.req.param("id");
   const { targetTelegramUserIds } = await c.req.json().catch(() => ({ targetTelegramUserIds: null }));
@@ -1931,17 +1909,13 @@ app.post("/bot/send-question/:id", requirePanel, async (c) => {
   const options = bq.message_config.options || [];
   const imageUrl = bq.message_config.imageUrl;
 
-  const keyboard = options.map((opt: string, i: number) => ([{
-    text: opt,
-    callback_data: `bq:${bqId}:${i}`
-  }]));
+  const keyboard = options.map((opt: string, i: number) => ([{ text: opt, callback_data: `bq:${bqId}:${i}` }]));
 
   let sent = 0, failed = 0;
   for (const chatId of chatIds) {
     try {
       const payload: any = { chat_id: chatId, reply_markup: { inline_keyboard: keyboard } };
       let url = `https://api.telegram.org/bot${botToken()}/sendMessage`;
-      
       if (imageUrl) {
          url = `https://api.telegram.org/bot${botToken()}/sendPhoto`;
          payload.photo = imageUrl;
@@ -1954,15 +1928,10 @@ app.post("/bot/send-question/:id", requirePanel, async (c) => {
     } catch (e) { failed++; }
   }
 
-  await db().from("bot_questions").update({
-    total_sent: (bq.total_sent || 0) + sent,
-    sent_at: new Date().toISOString()
-  }).eq("bot_question_id", bqId);
-
+  await db().from("bot_questions").update({ total_sent: (bq.total_sent || 0) + sent, sent_at: new Date().toISOString() }).eq("bot_question_id", bqId);
   return c.json({ sent, failed, total: chatIds.length });
 });
 
-// 6. Enviar Notificación Custom via Telegram
 app.post("/bot/send-notification", requirePanel, async (c) => {
   const { text, type, imageUrl, buttonText, buttonUrl, targetTelegramUserIds } = await c.req.json();
 
@@ -2003,34 +1972,21 @@ app.post("/bot/send-notification", requirePanel, async (c) => {
   return c.json({ sent, failed, total: chatIds.length });
 });
 
-// 7. Listar suscriptores para el panel
 app.get("/bot/subscribers", requirePanel, async (c) => {
   const { data: channels } = await db().from("node_channels").select("channel_identifier, nodes!inner(nickname, status, created_at, last_active_at)").eq("channel", "telegram");
-
   const subscribers = (channels || []).map((ch: any) => ({
-    userId: ch.channel_identifier,
-    firstName: ch.nodes?.nickname || "Sin nombre",
-    lastName: "",
-    username: "",
-    chatId: ch.channel_identifier,
-    firstSeen: ch.nodes?.created_at,
-    lastSeen: ch.nodes?.last_active_at || ch.nodes?.created_at,
-    active: ch.nodes?.status === "active"
+    userId: ch.channel_identifier, firstName: ch.nodes?.nickname || "Sin nombre", lastName: "", username: "",
+    chatId: ch.channel_identifier, firstSeen: ch.nodes?.created_at, lastSeen: ch.nodes?.last_active_at || ch.nodes?.created_at, active: ch.nodes?.status === "active"
   }));
-
   return c.json({ total: subscribers.length, active: subscribers.filter((s: any) => s.active).length, subscribers });
 });
 
-// 8. Ver respuestas a una pregunta específica
 app.get("/bot-responses/:id", requirePanel, async (c) => {
   const bqId = c.req.param("id");
   const { data: bq } = await db().from("bot_questions").select("*").eq("bot_question_id", bqId).single();
   if (!bq) return c.json({ error: "Not found"}, 404);
 
-  const { data: resps } = await db().from("responses")
-    .select("response_id, node_id, choice, choice_index, created_at, raw_response, nodes(nickname)")
-    .eq("source", "bot");
-
+  const { data: resps } = await db().from("responses").select("response_id, node_id, choice, choice_index, created_at, raw_response, nodes(nickname)").eq("source", "bot");
   const specificResps = (resps || []).filter((r: any) => r.raw_response?.bot_question_id === bqId);
 
   const optionCounts: Record<string, number> = {};
@@ -2041,39 +1997,26 @@ app.get("/bot-responses/:id", requirePanel, async (c) => {
     const optText = r.choice || options[r.choice_index] || "Unknown";
     optionCounts[optText] = (optionCounts[optText] || 0) + 1;
     return {
-      questionId: bqId,
-      userId: r.node_id,
-      firstName: r.nodes?.nickname || "Anónimo",
-      username: "",
-      optionIndex: r.choice_index,
-      optionText: optText,
-      answeredAt: r.created_at
+      questionId: bqId, userId: r.node_id, firstName: r.nodes?.nickname || "Anónimo", username: "",
+      optionIndex: r.choice_index, optionText: optText, answeredAt: r.created_at
     };
   }).sort((a: any, b: any) => new Date(b.answeredAt).getTime() - new Date(a.answeredAt).getTime());
 
   return c.json({ total: specificResps.length, optionCounts, responses: formattedResponses });
 });
 
-// 9. Fake endpoints para dejar contento al panel que busca estado de Polling
 app.get("/bot-status", requirePanel, async (c) => {
   try {
     const r = await fetch(`https://api.telegram.org/bot${botToken()}/getWebhookInfo`);
     const info = await r.json();
-    return c.json({
-      ok: true,
-      mode: "webhook", 
-      webhookUrl: info.result?.url || "Activo",
-      webhookPending: info.result?.pending_update_count || 0,
-      botUsername: "BrutalBot", 
-      botName: "BRUTAL"
-    });
+    return c.json({ ok: true, mode: "webhook", webhookUrl: info.result?.url || "Activo", webhookPending: info.result?.pending_update_count || 0, botUsername: "BrutalBot", botName: "BRUTAL" });
   } catch (e) { return c.json({ ok: false }, 500); }
 });
 app.post("/bot/poll", requirePanel, async (c) => c.json({ ok: true, processed: 0, total: 0 }));
 app.post("/bot-delete-webhook", requirePanel, async (c) => c.json({ ok: true }));
 
 // ============================================================================
-// BOT WEBHOOK
+// BOT WEBHOOK (A PRUEBA DE BALAS)
 // ============================================================================
 
 app.post("/bot/webhook", async (c) => {
@@ -2082,232 +2025,28 @@ app.post("/bot/webhook", async (c) => {
   
   async function tgSend(method: string, body: any) {
     try {
-      await fetch(`https://api.telegram.org/bot${botT}/${method}`, {
+      const res = await fetch(`https://api.telegram.org/bot${botT}/${method}`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error(`[TG Error] ${method} falló:`, errText);
+      }
     } catch (e) {
-      console.error("[BOT] Error enviando mensaje a TG:", e);
+      console.error("[BOT] Error de red enviando a TG:", e);
     }
   }
 
-  // LÓGICA EN SEGUNDO PLANO: Procesamos todo acá adentro
   const processWebhook = async () => {
     try {
-      if (update.message?.contact) {
-        const contact = update.message.contact;
-        const tgUserId = contact.user_id;
-        let phone = contact.phone_number;
-        if (!phone.startsWith("+")) phone = "+" + phone;
-
-        if (tgUserId) {
-          const { data: chs } = await db().from("node_channels")
-            .select("node_id").eq("channel", "telegram").eq("channel_identifier", String(tgUserId)).limit(1);
-            
-          if (chs?.[0]?.node_id) {
-            await db().from("nodes").update({
-              phone: phone, phone_verified: true, phone_source: "telegram"
-            }).eq("node_id", chs[0].node_id);
-          } else {
-            const { data: newNode } = await db().from("nodes").insert({
-              phone: phone, phone_verified: true, phone_source: "telegram", status: "incomplete", onboarding_step: 1
-            }).select("node_id").single();
-            
-            if (newNode) {
-              const newAnon = "anon_" + crypto.randomUUID().replace(/-/g, "").slice(0, 32);
-              Promise.all([
-                db().from("node_channels").insert({ node_id: newNode.node_id, channel: "telegram", channel_identifier: String(tgUserId), is_primary: true }),
-                db().from("profiles").insert({ node_id: newNode.node_id, cash_balance: 0, cash_lifetime: 0, cash_withdrawn: 0, tickets_current: 0, tickets_lifetime: 0, drops_completed: 0, bot_questions_answered: 0, traps_passed: 0, traps_failed: 0, current_streak: 0, best_streak: 0 }),
-                db().from("anonymous_id_map").insert({ node_id: newNode.node_id, anonymous_id: newAnon })
-              ]).catch(e => console.error("[BOT] Error en inserts paralelos:", e));
-            }
-          }
-        }
-        return;
-      }
-
-      if (update.message?.text?.startsWith("/start")) {
-        const chatId = update.message.chat.id;
-        const userId = update.message.from.id;
-        
-        let node = await resolveNode(userId);
-        
-        if (!node) {
-          const { data: newNode } = await db().from("nodes").insert({
-            status: "incomplete", 
-            onboarding_step: 1
-          }).select("node_id").single();
-          
-          if (newNode) {
-            const newAnon = "anon_" + crypto.randomUUID().replace(/-/g, "").slice(0, 32);
-            Promise.all([
-              db().from("node_channels").insert({ node_id: newNode.node_id, channel: "telegram", channel_identifier: String(userId), is_primary: true }),
-              db().from("profiles").insert({ node_id: newNode.node_id, cash_balance: 0, cash_lifetime: 0, cash_withdrawn: 0, tickets_current: 0, tickets_lifetime: 0, drops_completed: 0, bot_questions_answered: 0, traps_passed: 0, traps_failed: 0, current_streak: 0, best_streak: 0 }),
-              db().from("anonymous_id_map").insert({ node_id: newNode.node_id, anonymous_id: newAnon })
-            ]).catch(e => console.error("[BOT] Error en inserts paralelos:", e));
-            node = { node_id: newNode.node_id, status: "incomplete", nickname: null };
-          }
-        }
-        
-        const { data: stepData } = await db().from("nodes").select("onboarding_step").eq("node_id", node?.node_id).limit(1);
-        const currentStep = stepData?.[0]?.onboarding_step || 1;
-        const displayName = node?.nickname || "Node";
-        
-        if (node?.status === "incomplete") {
-          if (currentStep <= 1) {
-            await tgSend("sendMessage", {
-              chat_id: chatId,
-              text: `⚡ <b>BRUTAL</b>\n\nHola.\n\nRegistrate para jugar Drops, ganar plata real y competir por premios.`,
-              parse_mode: "HTML",
-              reply_markup: { inline_keyboard: [[{ text: "🔥 Entrar", web_app: { url: `https://brutal.up.railway.app/entrar` } }]] }
-            });
-          } else {
-            await tgSend("sendMessage", {
-              chat_id: chatId,
-              text: `📝 Hola${displayName !== "Node" ? ` ${displayName}` : ""}, te quedaste por la mitad.\n\nCompletá tu registro para asegurar tu lugar en la fila.`,
-              parse_mode: "HTML",
-              reply_markup: { inline_keyboard: [[{ text: "📝 Completar registro", web_app: { url: `https://brutal.up.railway.app/entrar` } }]] }
-            });
-          }
-          return;
-        }
-        
-        if (node?.status !== "active") {
-          const nameStr = displayName !== "Node" ? ` ${displayName}` : "";
-          const msgs: any = {
-            pending: `⏳ Hola${nameStr}, tu cuenta está en revisión. Te avisamos cuando estés dentro.`,
-            blocked: "🚫 Tu cuenta fue suspendida.",
-            rejected: "❌ Tu solicitud no fue aprobada.",
-          };
-          await tgSend("sendMessage", { chat_id: chatId, text: msgs[node?.status || "pending"] || "⚠️ Tu cuenta no está activa.", parse_mode: "HTML" });
-          return;
-        }
-        
-        const { data: activeDropRows } = await db().from("drops").select("drop_id, name").eq("status", "active").limit(1);
-        const activeDrop = activeDropRows?.[0];
-        
-        let text = `⚡ <b>BRUTAL</b>\n\nBienvenido de vuelta, ${displayName}.\n\nUsá /drop para jugar, /perfil para ver tu balance, /leaderboard para el ranking.`;
-        let keyboard: any[] = [];
-
-        if (activeDrop) {
-          const { data: done } = await db().from("sessions").select("session_id").eq("node_id", node.node_id).eq("drop_id", activeDrop.drop_id).in("status", ["completed", "claimed"]).limit(1);
-          if (done?.[0]) {
-            text += `\n\n✅ Ya jugaste <b>${activeDrop.name}</b>. Quedate atento a nuevas preguntas para sumar tickets 🎟️.`;
-            keyboard = [[{ text: "📊 Ver mi Perfil", web_app: { url: `https://brutal.up.railway.app/?screen=profile` } }]];
-          } else {
-            text += `\n\n🎯 <b>${activeDrop.name}</b> está activo. ¡Entrá a jugar!`;
-            keyboard = [[{ text: "▶️ Jugar Drop", web_app: { url: `https://brutal.up.railway.app/` } }]];
-          }
-        } else {
-           text += `\n\n😴 No hay ningún Drop activo en este momento.`;
-           keyboard = [[{ text: "📊 Ver mi Perfil", web_app: { url: `https://brutal.up.railway.app/?screen=profile` } }]];
-        }
-
-        await tgSend("sendMessage", { chat_id: chatId, text, parse_mode: "HTML", reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined });
-        return;
-      }
-
-      if (update.message?.text?.startsWith("/drop")) {
-        const chatId = update.message.chat.id;
-        const userId = update.message.from.id;
-        const node = await resolveNode(userId);
-        
-        if (!node) {
-          await tgSend("sendMessage", {
-            chat_id: chatId, text: "⚡ Todavía no sos parte de <b>BRUTAL</b>.\n\nRegistrate para jugar Drops, ganar plata y competir por premios.", parse_mode: "HTML",
-            reply_markup: { inline_keyboard: [[{ text: "🔥 Entrar", web_app: { url: `https://brutal.up.railway.app/entrar` } }]] }
-          });
-          return;
-        }
-        if (node.status !== "active") {
-          const msgs: any = {
-            pending: "⏳ Tu cuenta está en revisión. Te avisamos cuando estés dentro.",
-            blocked: "🚫 Tu cuenta fue suspendida.",
-            rejected: "❌ Tu solicitud no fue aprobada.",
-            incomplete: "📝 Te falta completar el registro.",
-          };
-          await tgSend("sendMessage", {
-            chat_id: chatId, text: msgs[node.status] || "⚠️ Tu cuenta no está activa.", parse_mode: "HTML",
-            ...(node.status === "incomplete" ? { reply_markup: { inline_keyboard: [[{ text: "📝 Completar registro", web_app: { url: `https://brutal.up.railway.app/entrar` } }]] } } : {})
-          });
-          return;
-        }
-        
-        const { data: activeDropRows } = await db().from("drops").select("drop_id, name").eq("status", "active").limit(1);
-        const activeDrop = activeDropRows?.[0];
-
-        if (!activeDrop) {
-          await tgSend("sendMessage", { chat_id: chatId, text: "😴 No hay ningún Drop activo ahora.\n\nQuedate atento, el bot te avisa cuando salga uno nuevo. Mientras tanto, contestá las preguntas que te mande para sumar tickets 🎟️", parse_mode: "HTML" });
-          return;
-        }
-        
-        const { data: done } = await db().from("sessions").select("session_id").eq("node_id", node.node_id).eq("drop_id", activeDrop.drop_id).in("status", ["completed", "claimed"]).limit(1);
-        if (done?.[0]) {
-          await tgSend("sendMessage", { chat_id: chatId, text: `✅ Ya jugaste <b>${activeDrop.name}</b>.\n\nQuedate atento que el bot te manda preguntas sueltas todo el tiempo y sumás tickets 🎟️ para el sorteo.`, parse_mode: "HTML" });
-          return;
-        }
-        
-        await tgSend("sendMessage", {
-          chat_id: chatId, text: `🎯 <b>${activeDrop.name}</b> está activo.\n\nResponde rápido, ganá monedas y tickets.`, parse_mode: "HTML",
-          reply_markup: { inline_keyboard: [[{ text: "▶️ Jugar", web_app: { url: `https://brutal.up.railway.app` } }]] }
-        });
-        return;
-      }
-
-      if (update.message?.text?.startsWith("/help")) {
-        const chatId = update.message.chat.id;
-        await tgSend("sendMessage", {
-          chat_id: chatId, text: `⚡ <b>BRUTAL — Comandos</b>\n\n/start — Iniciar\n/drop — Jugar el Drop activo\n/leaderboard — Ver ranking\n/perfil — Tu perfil y balance\n/help — Ver ayuda\n\nLos Drops se publican semanalmente. Respondé rápido, ganá cash y tickets.`, parse_mode: "HTML",
-        });
-        return;
-      }
-
-      if (update.message?.text?.startsWith("/leaderboard")) {
-        const chatId = update.message.chat.id;
-        const { data } = await db().from("profiles").select("tickets_current, nodes(nickname)").order("tickets_current", { ascending: false }).limit(10);
-        let text = "🏆 <b>LEADERBOARD</b>\n\n";
-        if (!data?.length) {
-          text += "Todavía no hay jugadores.";
-        } else {
-          data.forEach((p: any, i: number) => {
-            const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}.`;
-            const name = p.nodes?.nickname || "Anónimo";
-            text += `${medal} <b>${name}</b> — ${p.tickets_current || 0} 🎟️\n`;
-          });
-        }
-        await tgSend("sendMessage", { chat_id: chatId, text, parse_mode: "HTML" });
-        return;
-      }
-
-      if (update.message?.text?.startsWith("/perfil")) {
-        const chatId = update.message.chat.id;
-        const userId = update.message.from.id;
-        const node = await resolveNode(userId);
-        if (!node) {
-          await tgSend("sendMessage", {
-            chat_id: chatId, text: "⚠️ No estás registrado. Abrí la app primero.",
-            reply_markup: { inline_keyboard: [[{ text: "🔥 Abrir BRUTAL", web_app: { url: `https://brutal.up.railway.app/entrar` } }]] }
-          });
-          return;
-        }
-        const { data: profile } = await db().from("profiles")
-          .select("cash_balance, tickets_current, tickets_lifetime, drops_completed, bot_questions_answered").eq("node_id", node.node_id).single();
-        const { data: nd } = await db().from("nodes")
-          .select("nickname, compass_archetype, referral_code").eq("node_id", node.node_id).single();
-        
-        const p = profile || {};
-        const text = `⚡ <b>Tu Perfil</b>\n\n👤 <b>${nd?.nickname || "Node"}</b>\n${nd?.compass_archetype ? `🧭 ${nd.compass_archetype}\n` : ""}\n💰 Balance: <b>$${p.cash_balance || 0}</b>\n🎟️ Tickets (season): <b>${p.tickets_current || 0}</b>\n🎟️ Tickets (lifetime): <b>${p.tickets_lifetime || 0}</b>\n📦 Drops completados: <b>${p.drops_completed || 0}</b>\n🤖 Bot preguntas: <b>${p.bot_questions_answered || 0}</b>\n\n🔗 Tu código: <code>${nd?.referral_code || "—"}</code>`;
-        
-        await tgSend("sendMessage", { chat_id: chatId, text, parse_mode: "HTML" });
-        return;
-      }
-
+      // 1. Manejo de botones inline de preguntas
       if (update.callback_query) {
         const cb = update.callback_query;
         const chatId = cb.message?.chat?.id;
         const userId = cb.from.id;
         const data = cb.callback_data;
         
-        // 1. Apagamos el "relojito de carga" del botón inmediatamente
+        // APAGAR RELOJITO INMEDIATAMENTE
         await tgSend("answerCallbackQuery", { callback_query_id: cb.id });
 
         if (data?.startsWith("bq:")) {
@@ -2326,36 +2065,35 @@ app.post("/bot/webhook", async (c) => {
             return;
           }
 
-          // 2. Buscamos la pregunta en la base
           const { data: bq, error: bqErr } = await db().from("bot_questions").select("*").eq("bot_question_id", botQuestionId).single();
           
           if (bqErr || !bq || !bq.message_config) {
-            console.error("[BOT] Error o pregunta no encontrada:", bqErr);
+            console.error("[BOT] Pregunta no encontrada en DB:", bqErr);
             return;
           }
           
           const config = bq.message_config;
           const anonymous_id = await anonId(node.node_id);
           const options = config.options || [];
-          const chosenOption = options[choiceIndex] || `option_${choiceIndex}`;
+          const chosenOption = options[choiceIndex] || `Opción ${choiceIndex + 1}`;
           const rewardTickets = config.rewardTickets || 0;
 
-          // (Opcional) Evitar que un usuario vote dos veces
+          // Evitar doble voto
           const { data: existingResp } = await db().from("responses")
             .select("response_id").eq("node_id", node.node_id).eq("question_id", bq.question_id).limit(1);
 
           if (existingResp && existingResp.length > 0) {
-            await tgSend("sendMessage", { chat_id: chatId, text: "⚠️ Ya respondiste esta pregunta." });
+            if (chatId) await tgSend("sendMessage", { chat_id: chatId, text: "⚠️ Ya respondiste esta pregunta." });
             return;
           }
 
-          // 3. GUARDAR LA RESPUESTA (Fix: Usamos bq.question_id y tipo "choice")
+          // GUARDAR RESPUESTA
           const { error: respErr } = await db().from("responses").insert({
             node_id: node.node_id, 
             anonymous_id, 
-            question_id: bq.question_id, // <-- EL FIX DEL ID
+            question_id: bq.question_id, 
             drop_id: bq.linked_drop_id || null,
-            question_type: "choice", // <-- EL FIX DEL TIPO
+            question_type: "choice", 
             choice: chosenOption,
             choice_index: choiceIndex, 
             raw_response: { callback_data: data, bot_question_id: botQuestionId },
@@ -2366,11 +2104,11 @@ app.post("/bot/webhook", async (c) => {
           });
 
           if (respErr) {
-            console.error("[BOT] Error guardando respuesta en DB:", respErr);
+            console.error("[BOT] Error guardando respuesta:", respErr);
             return;
           }
 
-          // 4. ENTREGAR RECOMPENSAS
+          // ACTUALIZAR PERFIL
           if (rewardTickets > 0) {
             const { data: p } = await db().from("profiles").select("tickets_current, tickets_lifetime, bot_questions_answered").eq("node_id", node.node_id).single();
             if (p) {
@@ -2387,45 +2125,139 @@ app.post("/bot/webhook", async (c) => {
             }
           }
 
-          // 5. ACTUALIZAR MÉTRICAS GENERALES DE LA PREGUNTA
-          await db().from("bot_questions").update({
-             total_answered: (bq.total_answered || 0) + 1
-          }).eq("bot_question_id", botQuestionId);
+          await db().from("bot_questions").update({ total_answered: (bq.total_answered || 0) + 1 }).eq("bot_question_id", botQuestionId);
 
-          // 6. ACTUALIZAR CHAT (Fix: Remueve botones y manda mensaje limpio para evitar bugs de imagen/texto)
+          // ACTUALIZAR INTERFAZ TELEGRAM (Borrando botones)
           const rewardText = rewardTickets > 0 ? `+${rewardTickets} 🎟️` : "✅";
-          
-          if (cb.message) {
+          if (cb.message && chatId) {
             try {
-              // Borramos la botonera para que no pueda volver a tocar
-              await tgSend("editMessageReplyMarkup", {
-                chat_id: chatId, 
-                message_id: cb.message.message_id,
-                reply_markup: { inline_keyboard: [] }
-              });
-
-              // Mandamos un mensaje confirmando su elección
-              await tgSend("sendMessage", {
-                chat_id: chatId,
-                text: `<b>Tu respuesta:</b> ${chosenOption}\n${rewardText}`,
-                parse_mode: "HTML"
-              });
+              await tgSend("editMessageReplyMarkup", { chat_id: chatId, message_id: cb.message.message_id, reply_markup: { inline_keyboard: [] } });
+              await tgSend("sendMessage", { chat_id: chatId, text: `<b>Tu respuesta:</b> ${chosenOption}\n${rewardText}`, parse_mode: "HTML" });
             } catch(e) {
-              console.error("[BOT] Error actualizando UI de Telegram:", e);
+              console.error("[BOT] Error limpiando botones de TG:", e);
             }
           }
         }
         return;
       }
+
+      // 2. Manejo de comandos regulares (/start, /drop, etc)
+      if (update.message?.text?.startsWith("/start")) {
+        const chatId = update.message.chat.id;
+        const userId = update.message.from.id;
+        let node = await resolveNode(userId);
+        
+        if (!node) {
+          const { data: newNode } = await db().from("nodes").insert({ status: "incomplete", onboarding_step: 1 }).select("node_id").single();
+          if (newNode) {
+            const newAnon = "anon_" + crypto.randomUUID().replace(/-/g, "").slice(0, 32);
+            Promise.all([
+              db().from("node_channels").insert({ node_id: newNode.node_id, channel: "telegram", channel_identifier: String(userId), is_primary: true }),
+              db().from("profiles").insert({ node_id: newNode.node_id, cash_balance: 0, cash_lifetime: 0, cash_withdrawn: 0, tickets_current: 0, tickets_lifetime: 0, drops_completed: 0, bot_questions_answered: 0, traps_passed: 0, traps_failed: 0, current_streak: 0, best_streak: 0 }),
+              db().from("anonymous_id_map").insert({ node_id: newNode.node_id, anonymous_id: newAnon })
+            ]).catch(e => console.error("[BOT] Error en inserts paralelos:", e));
+            node = { node_id: newNode.node_id, status: "incomplete", nickname: null };
+          }
+        }
+        
+        const { data: stepData } = await db().from("nodes").select("onboarding_step").eq("node_id", node?.node_id).limit(1);
+        const currentStep = stepData?.[0]?.onboarding_step || 1;
+        const displayName = node?.nickname || "Node";
+        
+        if (node?.status === "incomplete") {
+          if (currentStep <= 1) {
+            await tgSend("sendMessage", { chat_id: chatId, text: `⚡ <b>BRUTAL</b>\n\nHola.\n\nRegistrate para jugar Drops, ganar plata real y competir por premios.`, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🔥 Entrar", web_app: { url: `https://brutal.up.railway.app/entrar` } }]] } });
+          } else {
+            await tgSend("sendMessage", { chat_id: chatId, text: `📝 Hola${displayName !== "Node" ? ` ${displayName}` : ""}, te quedaste por la mitad.\n\nCompletá tu registro para asegurar tu lugar en la fila.`, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "📝 Completar registro", web_app: { url: `https://brutal.up.railway.app/entrar` } }]] } });
+          }
+          return;
+        }
+        
+        if (node?.status !== "active") {
+          const msgs: any = { pending: `⏳ Hola, tu cuenta está en revisión. Te avisamos cuando estés dentro.`, blocked: "🚫 Tu cuenta fue suspendida.", rejected: "❌ Tu solicitud no fue aprobada." };
+          await tgSend("sendMessage", { chat_id: chatId, text: msgs[node?.status || "pending"] || "⚠️ Tu cuenta no está activa.", parse_mode: "HTML" });
+          return;
+        }
+        
+        const { data: activeDropRows } = await db().from("drops").select("drop_id, name").eq("status", "active").limit(1);
+        const activeDrop = activeDropRows?.[0];
+        let text = `⚡ <b>BRUTAL</b>\n\nBienvenido de vuelta, ${displayName}.\n\nUsá /drop para jugar, /perfil para ver tu balance, /leaderboard para el ranking.`;
+        let keyboard: any[] = [];
+
+        if (activeDrop) {
+          const { data: done } = await db().from("sessions").select("session_id").eq("node_id", node.node_id).eq("drop_id", activeDrop.drop_id).in("status", ["completed", "claimed"]).limit(1);
+          if (done?.[0]) {
+            text += `\n\n✅ Ya jugaste <b>${activeDrop.name}</b>. Quedate atento a nuevas preguntas para sumar tickets 🎟️.`;
+            keyboard = [[{ text: "📊 Ver mi Perfil", web_app: { url: `https://brutal.up.railway.app/?screen=profile` } }]];
+          } else {
+            text += `\n\n🎯 <b>${activeDrop.name}</b> está activo. ¡Entrá a jugar!`;
+            keyboard = [[{ text: "▶️ Jugar Drop", web_app: { url: `https://brutal.up.railway.app/` } }]];
+          }
+        } else {
+           text += `\n\n😴 No hay ningún Drop activo en este momento.`;
+           keyboard = [[{ text: "📊 Ver mi Perfil", web_app: { url: `https://brutal.up.railway.app/?screen=profile` } }]];
+        }
+        await tgSend("sendMessage", { chat_id: chatId, text, parse_mode: "HTML", reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined });
+        return;
+      }
+
+      if (update.message?.text?.startsWith("/drop")) {
+        const chatId = update.message.chat.id;
+        const userId = update.message.from.id;
+        const node = await resolveNode(userId);
+        
+        if (!node) {
+          await tgSend("sendMessage", { chat_id: chatId, text: "⚡ Todavía no sos parte de <b>BRUTAL</b>.\n\nRegistrate para jugar Drops.", parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "🔥 Entrar", web_app: { url: `https://brutal.up.railway.app/entrar` } }]] } });
+          return;
+        }
+        if (node.status !== "active") {
+          await tgSend("sendMessage", { chat_id: chatId, text: "⚠️ Tu cuenta no está activa." });
+          return;
+        }
+        const { data: activeDropRows } = await db().from("drops").select("drop_id, name").eq("status", "active").limit(1);
+        const activeDrop = activeDropRows?.[0];
+        if (!activeDrop) {
+          await tgSend("sendMessage", { chat_id: chatId, text: "😴 No hay ningún Drop activo ahora.", parse_mode: "HTML" });
+          return;
+        }
+        const { data: done } = await db().from("sessions").select("session_id").eq("node_id", node.node_id).eq("drop_id", activeDrop.drop_id).in("status", ["completed", "claimed"]).limit(1);
+        if (done?.[0]) {
+          await tgSend("sendMessage", { chat_id: chatId, text: `✅ Ya jugaste <b>${activeDrop.name}</b>.`, parse_mode: "HTML" });
+          return;
+        }
+        await tgSend("sendMessage", { chat_id: chatId, text: `🎯 <b>${activeDrop.name}</b> está activo.`, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "▶️ Jugar", web_app: { url: `https://brutal.up.railway.app` } }]] } });
+        return;
+      }
+
+      if (update.message?.text?.startsWith("/leaderboard")) {
+        const chatId = update.message.chat.id;
+        const { data } = await db().from("profiles").select("tickets_current, nodes(nickname)").order("tickets_current", { ascending: false }).limit(10);
+        let text = "🏆 <b>LEADERBOARD</b>\n\n";
+        data?.forEach((p: any, i: number) => {
+            const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}.`;
+            text += `${medal} <b>${p.nodes?.nickname || "Anónimo"}</b> — ${p.tickets_current || 0} 🎟️\n`;
+        });
+        await tgSend("sendMessage", { chat_id: chatId, text, parse_mode: "HTML" });
+        return;
+      }
+
+      if (update.message?.text?.startsWith("/perfil")) {
+        const chatId = update.message.chat.id;
+        const userId = update.message.from.id;
+        const node = await resolveNode(userId);
+        if (!node) return;
+        const { data: p } = await db().from("profiles").select("cash_balance, tickets_current, tickets_lifetime, drops_completed, bot_questions_answered").eq("node_id", node.node_id).single();
+        const text = `⚡ <b>Tu Perfil</b>\n\n💰 Balance: <b>$${p?.cash_balance || 0}</b>\n🎟️ Tickets: <b>${p?.tickets_current || 0}</b>`;
+        await tgSend("sendMessage", { chat_id: chatId, text, parse_mode: "HTML" });
+        return;
+      }
+
     } catch (err) {
       console.error("[BOT] Error procesando webhook:", err);
     }
   };
 
-  // DISPARAR Y OLVIDAR: Ejecuta el proceso en segundo plano.
   processWebhook();
-
-  // RESPUESTA INSTANTÁNEA A TELEGRAM: "Ya te escuché, no me lo mandes de nuevo"
   return c.json({ ok: true });
 });
 
