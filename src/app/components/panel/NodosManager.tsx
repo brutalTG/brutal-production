@@ -502,8 +502,20 @@ export function NodosManager() {
 
   const deleteSegment = async (id: string) => {
     if (!confirm("Eliminar este segmento?")) return;
-    try { await fetch(`${API_BASE}/admin/segments/${id}`, { method: "DELETE", headers: headers() }); setSegments((prev) => prev.filter((s) => s.segmentId !== id)); }
-    catch (err) { console.error("[NodosManager] Delete segment error:", err); }
+    try { 
+      const res = await fetch(`${API_BASE}/admin/segments/${id}`, { method: "DELETE", headers: headers() }); 
+      if (res.ok) {
+        // Solo lo borramos de la UI si la base de datos confirmó que se borró
+        setSegments((prev) => prev.filter((s) => s.segmentId !== id)); 
+      } else {
+        const err = await res.json();
+        alert(`No se pudo eliminar el segmento. Es posible que esté asignado a un Drop o una Carta activa. Error: ${err.error || res.status}`);
+      }
+    }
+    catch (err) { 
+      console.error("[NodosManager] Delete segment error:", err); 
+      alert("Error de conexión al intentar eliminar el segmento.");
+    }
   };
 
   const loadSegment = (segment: Segment) => { setFilters(segment.filters); setFiltersOpen(true); setTab("nodos"); };
