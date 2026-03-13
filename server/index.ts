@@ -1800,6 +1800,233 @@ app.post("/panel-auth", async (c) => {
 });
 
 // ============================================================================
+// ADMIN — BOT MANAGER
+// ============================================================================
+
+// 1. Listar preguntas del bot
+app.get("/bot/questions", requirePanel, async (c) => {
+  const { data, error } = await db()
+    .from("bot_questions")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) return c.json({ error: error.message }, 500);
+
+  const formatted = (data || []).map((bq: any) => ({
+    id: bq.bot_question_id,
+    text: bq.message_config?.text || "",
+    options: bq.message_config?.options || [],
+    imageUrl: bq.message_config?.imageUrl || null,
+    rewardTickets: bq.message_config?.rewardTickets || 0,
+    sentCount: bq.total_sent || 0,
+    lastSentAt: bq.sent_at || null,
+    createdAt: bq.created_at,
+    updatedAt: bq.created_at,
+  }));
+
+  return c.json({ questions: formatted });
+});
+
+// 2. Crear nueva pregunta de bot
+app.post("/bot/questions", requirePanel, async (c) => {
+  const body = await c.req.json();
+  const { text, options, imageUrl, rewardTickets } = body;
+
+  const { data: bq, error: bqErr } = await db().from("bot_questions").insert({
+    bot_question_id: crypto.randomUUID(),
+    message_config: { text, options, imageUrl, rewardTickets },
+    total_sent: 0,
+    total_answered: 0,
+  }).select("bot_question_id").single();
+
+  if (bqErr) return c.json({ error: bqErr.message }, 500);
+  return c.json({ ok: true, id: bq.bot_question_id });
+});
+
+// 3. Actualizar pregunta del bot
+app.put("/bot/questions/:id", requirePanel, async (c) => {
+  const bqId = c.req.param("id");
+  const { text, options, imageUrl, rewardTickets } = await c.req.json();
+
+  const { error } = await db().from("bot_questions").update({
+    message_config: { text, options, imageUrl, rewardTickets },
+  }).eq("bot_question_id", bqId);
+
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ ok: true });
+});
+
+// 4. Eliminar pregunta de bot
+app.delete("/bot/questions/:id", requirePanel, async (c) => {
+  const bqId = c.req.param("id");
+  await db().from("bot_questions").delete().eq("bot_question_id", bqId);
+  return c.json({ ok: true });
+});
+
+// 5. Enviar pregunta via Telegram (Todos o Segmento)
+app.post("/bot/send-question/:id", requirePanel, async (c) => {
+  const bqId = c.req.param("id");
+  const { targetTelegramUserIds } = await c.req.json().catch(() => ({ targetTelegramUserIds: null }));
+
+  const { data: bq } = await db().from("bot_questions").select("*").eq("bot_question_id", bqId).single();
+  if (!bq || !bq.message_config) return c.json({ error: "Not found" }, 404);
+
+  let chatIds = [];
+  if (targetTelegramUserIds && targetTelegramUserIds.length > 0) {
+    chatIds = targetTelegramUserIds;
+  } else {
+    const { data: channels } = await db().from("node_channels").select("channel_identifier, nodes!inner(status)").eq("channel", "telegram").eq("nodes.status", "active");
+    chatIds = (channels || []).map((ch: any) => ch.channel_identifier);
+  }
+
+  if (chatIds.length === 0) return c.json({ sent: 0, failed: 0, total: 0 });
+
+  const text = bq.message_config.text;
+  const options = bq.message_config.options || [];
+  const imageUrl = bq.message_config.imageUrl;
+
+  const keyboard = options.map((opt: string, i: number) => ([{
+    text: opt,
+    callback_data: `bq:${bqId}:${i}`
+  }]));
+
+  let sent = 0, failed = 0;
+  for (const chatId of chatIds) {
+    try {
+      const payload: any = { chat_id: chatId, reply_markup: { inline_keyboard: keyboard } };
+      let url = `https://api.telegram.org/bot${botToken()}/sendMessage`;
+      
+      if (imageUrl) {
+         url = `https://api.telegram.org/bot${botToken()}/sendPhoto`;
+         payload.photo = imageUrl;
+         payload.caption = text;
+      } else {
+         payload.text = text;
+      }
+      const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (r.ok) sent++; else failed++;
+    } catch (e) { failed++; }
+  }
+
+  await db().from("bot_questions").update({
+    total_sent: (bq.total_sent || 0) + sent,
+    sent_at: new Date().toISOString()
+  }).eq("bot_question_id", bqId);
+
+  return c.json({ sent, failed, total: chatIds.length });
+});
+
+// 6. Enviar Notificación Custom via Telegram
+app.post("/bot/send-notification", requirePanel, async (c) => {
+  const { text, type, imageUrl, buttonText, buttonUrl, targetTelegramUserIds } = await c.req.json();
+
+  let chatIds = [];
+  if (targetTelegramUserIds && targetTelegramUserIds.length > 0) {
+    chatIds = targetTelegramUserIds;
+  } else {
+    const { data: channels } = await db().from("node_channels").select("channel_identifier, nodes!inner(status)").eq("channel", "telegram").eq("nodes.status", "active");
+    chatIds = (channels || []).map((ch: any) => ch.channel_identifier);
+  }
+
+  let inline_keyboard = [];
+  if (type === "drop") {
+    inline_keyboard = [[{ text: buttonText || "Abrir BRUTAL", web_app: { url: "https://brutal.up.railway.app" } }]];
+  } else if (buttonText && buttonUrl) {
+    inline_keyboard = [[{ text: buttonText, url: buttonUrl }]];
+  }
+
+  let sent = 0, failed = 0;
+  for (const chatId of chatIds) {
+    try {
+      const payload: any = { chat_id: chatId };
+      if (inline_keyboard.length > 0) payload.reply_markup = { inline_keyboard };
+
+      let url = `https://api.telegram.org/bot${botToken()}/sendMessage`;
+      if (imageUrl) {
+         url = `https://api.telegram.org/bot${botToken()}/sendPhoto`;
+         payload.photo = imageUrl;
+         payload.caption = text;
+      } else {
+         payload.text = text;
+      }
+
+      const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (r.ok) sent++; else failed++;
+    } catch (e) { failed++; }
+  }
+  return c.json({ sent, failed, total: chatIds.length });
+});
+
+// 7. Listar suscriptores para el panel
+app.get("/bot/subscribers", requirePanel, async (c) => {
+  const { data: channels } = await db().from("node_channels").select("channel_identifier, nodes!inner(nickname, status, created_at, last_active_at)").eq("channel", "telegram");
+
+  const subscribers = (channels || []).map((ch: any) => ({
+    userId: ch.channel_identifier,
+    firstName: ch.nodes?.nickname || "Sin nombre",
+    lastName: "",
+    username: "",
+    chatId: ch.channel_identifier,
+    firstSeen: ch.nodes?.created_at,
+    lastSeen: ch.nodes?.last_active_at || ch.nodes?.created_at,
+    active: ch.nodes?.status === "active"
+  }));
+
+  return c.json({ total: subscribers.length, active: subscribers.filter((s: any) => s.active).length, subscribers });
+});
+
+// 8. Ver respuestas a una pregunta específica
+app.get("/bot-responses/:id", requirePanel, async (c) => {
+  const bqId = c.req.param("id");
+  const { data: bq } = await db().from("bot_questions").select("*").eq("bot_question_id", bqId).single();
+  if (!bq) return c.json({ error: "Not found"}, 404);
+
+  const { data: resps } = await db().from("responses")
+    .select("response_id, node_id, choice, choice_index, created_at, raw_response, nodes(nickname)")
+    .eq("source", "bot");
+
+  const specificResps = (resps || []).filter((r: any) => r.raw_response?.bot_question_id === bqId);
+
+  const optionCounts: Record<string, number> = {};
+  const options = bq.message_config?.options || [];
+  options.forEach((o: string) => optionCounts[o] = 0);
+
+  const formattedResponses = specificResps.map((r: any) => {
+    const optText = r.choice || options[r.choice_index] || "Unknown";
+    optionCounts[optText] = (optionCounts[optText] || 0) + 1;
+    return {
+      questionId: bqId,
+      userId: r.node_id,
+      firstName: r.nodes?.nickname || "Anónimo",
+      username: "",
+      optionIndex: r.choice_index,
+      optionText: optText,
+      answeredAt: r.created_at
+    };
+  }).sort((a: any, b: any) => new Date(b.answeredAt).getTime() - new Date(a.answeredAt).getTime());
+
+  return c.json({ total: specificResps.length, optionCounts, responses: formattedResponses });
+});
+
+// 9. Fake endpoints para dejar contento al panel que busca estado de Polling
+app.get("/bot-status", requirePanel, async (c) => {
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${botToken()}/getWebhookInfo`);
+    const info = await r.json();
+    return c.json({
+      ok: true,
+      mode: "webhook", 
+      webhookUrl: info.result?.url || "Activo",
+      webhookPending: info.result?.pending_update_count || 0,
+      botUsername: "BrutalBot", 
+      botName: "BRUTAL"
+    });
+  } catch (e) { return c.json({ ok: false }, 500); }
+});
+app.post("/bot/poll", requirePanel, async (c) => c.json({ ok: true, processed: 0, total: 0 }));
+app.post("/bot-delete-webhook", requirePanel, async (c) => c.json({ ok: true }));
+
+// ============================================================================
 // BOT WEBHOOK
 // ============================================================================
 
@@ -2049,42 +2276,52 @@ app.post("/bot/webhook", async (c) => {
             return;
           }
 
-          const { data: bq } = await db().from("bot_questions").select("*, questions(*)").eq("id", botQuestionId).single();
+          // FIX: Buscamos en bot_questions y extraemos los datos de message_config
+          const { data: bq } = await db().from("bot_questions").select("*").eq("bot_question_id", botQuestionId).single();
           
-          if (bq?.questions) {
-            const q = bq.questions;
+          if (bq && bq.message_config) {
+            const config = bq.message_config;
             const anonymous_id = await anonId(node.node_id);
-            const options = q.config?.options || [];
+            const options = config.options || [];
             const chosenOption = options[choiceIndex] || `option_${choiceIndex}`;
+            const rewardTickets = config.rewardTickets || 0;
 
+            // Guardar la respuesta
             await db().from("responses").insert({
-              node_id: node.node_id, anonymous_id, question_id: q.question_id, drop_id: bq.linked_drop_id || null,
-              question_type: q.type, choice: typeof chosenOption === "string" ? chosenOption : chosenOption.text || chosenOption.label,
+              node_id: node.node_id, anonymous_id, question_id: botQuestionId, drop_id: bq.linked_drop_id || null,
+              question_type: "bot_question", choice: chosenOption,
               choice_index: choiceIndex, raw_response: { callback_data: data, bot_question_id: botQuestionId },
-              source: "bot", reward_type: q.reward_cash > 0 ? "cash" : q.reward_tickets > 0 ? "golden_ticket" : null,
-              reward_value: q.reward_cash || q.reward_tickets || 0, reward_granted: true,
+              source: "bot", reward_type: rewardTickets > 0 ? "golden_ticket" : null,
+              reward_value: rewardTickets, reward_granted: true,
             });
 
-            const rewardCash = q.reward_cash || 0;
-            const rewardTickets = q.reward_tickets || 0;
-            if (rewardCash > 0) {
-              const { data: p } = await db().from("profiles").select("cash_balance, cash_lifetime").eq("node_id", node.node_id).single();
-              if (p) await db().from("profiles").update({
-                cash_balance: (p.cash_balance || 0) + rewardCash, cash_lifetime: (p.cash_lifetime || 0) + rewardCash,
-              }).eq("node_id", node.node_id);
-            } else if (rewardTickets > 0) {
+            // Dar premios (Tickets)
+            if (rewardTickets > 0) {
               const { data: p } = await db().from("profiles").select("tickets_current, tickets_lifetime").eq("node_id", node.node_id).single();
-              if (p) await db().from("profiles").update({
-                tickets_current: (p.tickets_current || 0) + rewardTickets, tickets_lifetime: (p.tickets_lifetime || 0) + rewardTickets,
-              }).eq("node_id", node.node_id);
+              if (p) {
+                await db().from("profiles").update({
+                  tickets_current: (p.tickets_current || 0) + rewardTickets, 
+                  tickets_lifetime: (p.tickets_lifetime || 0) + rewardTickets,
+                  bot_questions_answered: (p.bot_questions_answered || 0) + 1
+                }).eq("node_id", node.node_id);
+              }
+            } else {
+              // Si no daba tickets, igual sumamos la métrica
+              const { data: p } = await db().from("profiles").select("bot_questions_answered").eq("node_id", node.node_id).single();
+              if (p) {
+                await db().from("profiles").update({ bot_questions_answered: (p.bot_questions_answered || 0) + 1 }).eq("node_id", node.node_id);
+              }
             }
 
-            const { data: prof } = await db().from("profiles").select("bot_questions_answered").eq("node_id", node.node_id).single();
-            if (prof) await db().from("profiles").update({ bot_questions_answered: (prof.bot_questions_answered || 0) + 1 }).eq("node_id", node.node_id);
+            // Actualizar la métrica de total respondido en la pregunta del bot
+            await db().from("bot_questions").update({
+               total_answered: (bq.total_answered || 0) + 1
+            }).eq("bot_question_id", botQuestionId);
 
-            const rewardText = rewardCash > 0 ? `+$${rewardCash} 💰` : rewardTickets > 0 ? `+${rewardTickets} 🎟️` : "✅";
+            // Responderle al usuario en Telegram
+            const rewardText = rewardTickets > 0 ? `+${rewardTickets} 🎟️` : "✅";
             await tgSend("editMessageText", {
-              chat_id: chatId, message_id: cb.message.message_id, text: `${cb.message.text}\n\n<b>Tu respuesta:</b> ${typeof chosenOption === "string" ? chosenOption : chosenOption.text || chosenOption.label}\n${rewardText}`, parse_mode: "HTML",
+              chat_id: chatId, message_id: cb.message.message_id, text: `${cb.message.text}\n\n<b>Tu respuesta:</b> ${chosenOption}\n${rewardText}`, parse_mode: "HTML",
             });
           }
         }
