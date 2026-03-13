@@ -6,6 +6,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { RewardEvent } from "./reward-animation";
 import type { UserAnswer } from "./archetype-engine";
 import type { Question, MultiplierCheckpoint, Drop } from "./drop-types";
+import { useNavigate } from "react-router"; // (o react-router-dom, dependiendo de lo que uses)
 
 // --- Screens ---
 import { SplashScreen } from "./splash-screen";
@@ -222,9 +223,6 @@ function NodeGateScreen({ status, nickname }: { status: NodeStatus; nickname: st
 // ============================================================
 
 function useDropLoader() {
-  // Start with fallback immediately — no loading screen blocks the UI.
-  // The fetch runs in background; if a server/preview drop arrives it swaps in
-  // while the user is still on splash/countdown (~5s buffer).
   const [drop, setDrop] = useState<Drop>(CURRENT_DROP);
   const [source, setSource] = useState<"server" | "preview" | "fallback">("fallback");
   const fetchStarted = useRef(false);
@@ -267,7 +265,6 @@ function useDropLoader() {
 // ============================================================
 // Main Survey Component
 // ============================================================
-import { useNavigate } from "react-router"; // (o react-router-dom, dependiendo de lo que uses)
 
 export default function SurveyApp() {
   const { drop, source } = useDropLoader();
@@ -400,8 +397,6 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
     window.addEventListener("beforeunload", onUnload);
     return () => { document.removeEventListener("visibilitychange", onHidden); window.removeEventListener("beforeunload", onUnload); };
   }, [screen, questionIndex]);
-
-  // ... (el resto del componente sigue igual)
 
   // ============================================================
   // Per-card upload: CORREGIDO para registrar el multiplicador real
@@ -591,7 +586,7 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
           try {
             await waitForUpload();
             if (tgUserId) {
-              // MANDAMOS LOS REWARDS "LIMPIOS"
+              // MANDAMOS LOS REWARDS "LIMPIOS" PARA QUE NO SE DUPLIQUEN
               const result = await claimRewards({
                 telegramUserId: tgUserId,
                 dropId: drop.id,
@@ -600,7 +595,6 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
                 coins: 0, 
                 tickets: 0, 
                 // Mandamos el total de tickets multiplicados como "finalTickets"
-                // El backend debería usar esto para calcular el BONUS final.
                 finalTickets: Math.round(tickets * currentMultiplier),
                 multiplier: currentMultiplier,
               });
