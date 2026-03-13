@@ -617,8 +617,8 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
               const result = await claimRewards({
                 telegramUserId: tgUserId,
                 dropId: drop.id,
-                coins: 0, 
-                tickets: 0, 
+                coins: coins, 
+                tickets: tickets, 
                 finalTickets: finalTickets,
                 multiplier: currentMultiplier,
               });
