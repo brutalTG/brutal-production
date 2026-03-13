@@ -1832,14 +1832,31 @@ app.post("/bot/questions", requirePanel, async (c) => {
   const body = await c.req.json();
   const { text, options, imageUrl, rewardTickets } = body;
 
+  // 1. Primero creamos el registro obligatorio en la tabla 'questions'
+  const { data: q, error: qErr } = await db().from("questions").insert({
+    type: "bot_question",
+    label: text,
+    config: { options, imageUrl },
+    reward_tickets: rewardTickets || 0,
+    reward_cash: 0
+  }).select("question_id").single();
+
+  if (qErr) return c.json({ error: qErr.message }, 500);
+
+  // 2. Ahora sí, creamos el registro del bot vinculándolo
   const { data: bq, error: bqErr } = await db().from("bot_questions").insert({
     bot_question_id: crypto.randomUUID(),
+    question_id: q.question_id, // <-- ESTO ES LO QUE FALTABA
     message_config: { text, options, imageUrl, rewardTickets },
     total_sent: 0,
     total_answered: 0,
   }).select("bot_question_id").single();
 
-  if (bqErr) return c.json({ error: bqErr.message }, 500);
+  if (bqErr) {
+    // Si falla, hacemos limpieza
+    await db().from("questions").delete().eq("question_id", q.question_id);
+    return c.json({ error: bqErr.message }, 500);
+  }
   return c.json({ ok: true, id: bq.bot_question_id });
 });
 
@@ -1848,6 +1865,17 @@ app.put("/bot/questions/:id", requirePanel, async (c) => {
   const bqId = c.req.param("id");
   const { text, options, imageUrl, rewardTickets } = await c.req.json();
 
+  const { data: bq } = await db().from("bot_questions").select("question_id").eq("bot_question_id", bqId).single();
+  if (!bq) return c.json({ error: "Not found" }, 404);
+
+  // Actualizamos la tabla principal
+  await db().from("questions").update({
+    label: text,
+    config: { options, imageUrl },
+    reward_tickets: rewardTickets || 0,
+  }).eq("question_id", bq.question_id);
+
+  // Actualizamos la tabla del bot
   const { error } = await db().from("bot_questions").update({
     message_config: { text, options, imageUrl, rewardTickets },
   }).eq("bot_question_id", bqId);
@@ -1859,10 +1887,17 @@ app.put("/bot/questions/:id", requirePanel, async (c) => {
 // 4. Eliminar pregunta de bot
 app.delete("/bot/questions/:id", requirePanel, async (c) => {
   const bqId = c.req.param("id");
+  const { data: bq } = await db().from("bot_questions").select("question_id").eq("bot_question_id", bqId).single();
+  
+  // Borramos de la tabla bot
   await db().from("bot_questions").delete().eq("bot_question_id", bqId);
+  
+  // Borramos de la tabla principal
+  if (bq?.question_id) {
+    await db().from("questions").delete().eq("question_id", bq.question_id);
+  }
   return c.json({ ok: true });
 });
-
 // 5. Enviar pregunta via Telegram (Todos o Segmento)
 app.post("/bot/send-question/:id", requirePanel, async (c) => {
   const bqId = c.req.param("id");
