@@ -277,13 +277,17 @@ export default function SurveyApp() {
 
   // Redirecciones del patovica:
   useEffect(() => {
-    // Si la puerta nos dice que no existe ("not_found") o dejó el registro por la mitad ("segment_denied" asumiendo que es incomplete, o podés agregar "incomplete" a los estados del hook), lo pateamos a /entrar
+    // Si la puerta nos dice que no existe ("not_found") o dejó el registro por la mitad
+    // ("segment_denied" asumiendo que es incomplete, o podés agregar "incomplete" a los estados del hook),
+    // lo pateamos a /entrar
     if (nodeStatus === "not_found") {
       console.log("[BRUTAL] Usuario no registrado. Redirigiendo al onboarding...");
       navigate("/entrar");
     }
   }, [nodeStatus, navigate]);
 
+  // --- NUEVO: Escudo de Memoria Local (Frontend Shield) ---
+  const hasPlayedLocally = localStorage.getItem(`brutal_drop_completed_${drop.id}`);
 
   // Node gate: block access for non-active nodes (inside Telegram only)
   // IMPORTANTE: Sacamos "not_found" de esta lista porque ya lo atajamos arriba y lo redirigimos
@@ -291,6 +295,11 @@ export default function SurveyApp() {
     return <NodeGateScreen status={nodeStatus} nickname={nickname} />;
   }
   
+  // --- NUEVO: Bloqueo Local Inmediato ---
+  if (hasPlayedLocally) {
+    return <NodeGateScreen status="completed" nickname={nickname} />;
+  }
+
   // Si nodeStatus es "not_found", mientras React hace el navigate, devolvemos null para no parpadear pantallas raras
   if (nodeStatus === "not_found") {
       return null;
@@ -547,8 +556,11 @@ function SurveyCore({ drop, source }: { drop: Drop; source: string }) {
       const lastQuestion = questions[lastIdx];
       if (lastAnswer && lastQuestion && lastIdx > lastUploadedIndexRef.current) {
         lastUploadedIndexRef.current = lastIdx;
-        uploadResponse(lastQuestion, lastIdx, lastAnswer, drop.id);
+        uploadResponse(lastQuestion, lastIdx, lastAnswer, drop.id, currentMultiplier);
       }
+
+      // --- GRABAMOS EN MEMORIA QUE YA TERMINÓ EL DROP ---
+      localStorage.setItem(`brutal_drop_completed_${drop.id}`, "true");
 
       // Finalize local session
       const archetypeData = archetype ? { id: archetype.id, title: archetype.title } : undefined;
