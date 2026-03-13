@@ -2303,9 +2303,11 @@ app.post("/bot/webhook", async (c) => {
 
       if (update.callback_query) {
         const cb = update.callback_query;
-        const chatId = cb.message.chat.id;
+        const chatId = cb.message?.chat?.id;
         const userId = cb.from.id;
         const data = cb.callback_data;
+        
+        // 1. Apagamos el "relojito de carga" del botón inmediatamente
         await tgSend("answerCallbackQuery", { callback_query_id: cb.id });
 
         if (data?.startsWith("bq:")) {
@@ -2315,60 +2317,102 @@ app.post("/bot/webhook", async (c) => {
 
           const node = await resolveNode(userId);
           if (!node) {
-            await tgSend("sendMessage", {
-              chat_id: chatId, text: "⚠️ No estás registrado. Abrí la app primero.",
-              reply_markup: { inline_keyboard: [[{ text: "🔥 Abrir BRUTAL", web_app: { url: `https://brutal.up.railway.app/entrar` } }]] }
-            });
+            if (chatId) {
+              await tgSend("sendMessage", {
+                chat_id: chatId, text: "⚠️ No estás registrado. Abrí la app primero.",
+                reply_markup: { inline_keyboard: [[{ text: "🔥 Abrir BRUTAL", web_app: { url: `https://brutal.up.railway.app/entrar` } }]] }
+              });
+            }
             return;
           }
 
-          // FIX: Buscamos en bot_questions y extraemos los datos de message_config
-          const { data: bq } = await db().from("bot_questions").select("*").eq("bot_question_id", botQuestionId).single();
+          // 2. Buscamos la pregunta en la base
+          const { data: bq, error: bqErr } = await db().from("bot_questions").select("*").eq("bot_question_id", botQuestionId).single();
           
-          if (bq && bq.message_config) {
-            const config = bq.message_config;
-            const anonymous_id = await anonId(node.node_id);
-            const options = config.options || [];
-            const chosenOption = options[choiceIndex] || `option_${choiceIndex}`;
-            const rewardTickets = config.rewardTickets || 0;
+          if (bqErr || !bq || !bq.message_config) {
+            console.error("[BOT] Error o pregunta no encontrada:", bqErr);
+            return;
+          }
+          
+          const config = bq.message_config;
+          const anonymous_id = await anonId(node.node_id);
+          const options = config.options || [];
+          const chosenOption = options[choiceIndex] || `option_${choiceIndex}`;
+          const rewardTickets = config.rewardTickets || 0;
 
-            // Guardar la respuesta
-            await db().from("responses").insert({
-              node_id: node.node_id, anonymous_id, question_id: botQuestionId, drop_id: bq.linked_drop_id || null,
-              question_type: "bot_question", choice: chosenOption,
-              choice_index: choiceIndex, raw_response: { callback_data: data, bot_question_id: botQuestionId },
-              source: "bot", reward_type: rewardTickets > 0 ? "golden_ticket" : null,
-              reward_value: rewardTickets, reward_granted: true,
-            });
+          // (Opcional) Evitar que un usuario vote dos veces
+          const { data: existingResp } = await db().from("responses")
+            .select("response_id").eq("node_id", node.node_id).eq("question_id", bq.question_id).limit(1);
 
-            // Dar premios (Tickets)
-            if (rewardTickets > 0) {
-              const { data: p } = await db().from("profiles").select("tickets_current, tickets_lifetime").eq("node_id", node.node_id).single();
-              if (p) {
-                await db().from("profiles").update({
-                  tickets_current: (p.tickets_current || 0) + rewardTickets, 
-                  tickets_lifetime: (p.tickets_lifetime || 0) + rewardTickets,
-                  bot_questions_answered: (p.bot_questions_answered || 0) + 1
-                }).eq("node_id", node.node_id);
-              }
-            } else {
-              // Si no daba tickets, igual sumamos la métrica
-              const { data: p } = await db().from("profiles").select("bot_questions_answered").eq("node_id", node.node_id).single();
-              if (p) {
-                await db().from("profiles").update({ bot_questions_answered: (p.bot_questions_answered || 0) + 1 }).eq("node_id", node.node_id);
-              }
+          if (existingResp && existingResp.length > 0) {
+            await tgSend("sendMessage", { chat_id: chatId, text: "⚠️ Ya respondiste esta pregunta." });
+            return;
+          }
+
+          // 3. GUARDAR LA RESPUESTA (Fix: Usamos bq.question_id y tipo "choice")
+          const { error: respErr } = await db().from("responses").insert({
+            node_id: node.node_id, 
+            anonymous_id, 
+            question_id: bq.question_id, // <-- EL FIX DEL ID
+            drop_id: bq.linked_drop_id || null,
+            question_type: "choice", // <-- EL FIX DEL TIPO
+            choice: chosenOption,
+            choice_index: choiceIndex, 
+            raw_response: { callback_data: data, bot_question_id: botQuestionId },
+            source: "bot", 
+            reward_type: rewardTickets > 0 ? "golden_ticket" : null,
+            reward_value: rewardTickets, 
+            reward_granted: true,
+          });
+
+          if (respErr) {
+            console.error("[BOT] Error guardando respuesta en DB:", respErr);
+            return;
+          }
+
+          // 4. ENTREGAR RECOMPENSAS
+          if (rewardTickets > 0) {
+            const { data: p } = await db().from("profiles").select("tickets_current, tickets_lifetime, bot_questions_answered").eq("node_id", node.node_id).single();
+            if (p) {
+              await db().from("profiles").update({
+                tickets_current: (p.tickets_current || 0) + rewardTickets, 
+                tickets_lifetime: (p.tickets_lifetime || 0) + rewardTickets,
+                bot_questions_answered: (p.bot_questions_answered || 0) + 1
+              }).eq("node_id", node.node_id);
             }
+          } else {
+            const { data: p } = await db().from("profiles").select("bot_questions_answered").eq("node_id", node.node_id).single();
+            if (p) {
+              await db().from("profiles").update({ bot_questions_answered: (p.bot_questions_answered || 0) + 1 }).eq("node_id", node.node_id);
+            }
+          }
 
-            // Actualizar la métrica de total respondido en la pregunta del bot
-            await db().from("bot_questions").update({
-               total_answered: (bq.total_answered || 0) + 1
-            }).eq("bot_question_id", botQuestionId);
+          // 5. ACTUALIZAR MÉTRICAS GENERALES DE LA PREGUNTA
+          await db().from("bot_questions").update({
+             total_answered: (bq.total_answered || 0) + 1
+          }).eq("bot_question_id", botQuestionId);
 
-            // Responderle al usuario en Telegram
-            const rewardText = rewardTickets > 0 ? `+${rewardTickets} 🎟️` : "✅";
-            await tgSend("editMessageText", {
-              chat_id: chatId, message_id: cb.message.message_id, text: `${cb.message.text}\n\n<b>Tu respuesta:</b> ${chosenOption}\n${rewardText}`, parse_mode: "HTML",
-            });
+          // 6. ACTUALIZAR CHAT (Fix: Remueve botones y manda mensaje limpio para evitar bugs de imagen/texto)
+          const rewardText = rewardTickets > 0 ? `+${rewardTickets} 🎟️` : "✅";
+          
+          if (cb.message) {
+            try {
+              // Borramos la botonera para que no pueda volver a tocar
+              await tgSend("editMessageReplyMarkup", {
+                chat_id: chatId, 
+                message_id: cb.message.message_id,
+                reply_markup: { inline_keyboard: [] }
+              });
+
+              // Mandamos un mensaje confirmando su elección
+              await tgSend("sendMessage", {
+                chat_id: chatId,
+                text: `<b>Tu respuesta:</b> ${chosenOption}\n${rewardText}`,
+                parse_mode: "HTML"
+              });
+            } catch(e) {
+              console.error("[BOT] Error actualizando UI de Telegram:", e);
+            }
           }
         }
         return;
