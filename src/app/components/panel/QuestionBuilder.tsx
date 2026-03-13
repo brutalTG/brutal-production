@@ -838,9 +838,11 @@ function MetaFields({
       .catch(() => {});
   }, []);
 
-  const currentSegmentIds = (data as any).segmentIds || [];
+  // FIX: Array inmutable para evitar pisar referencias de React
+  const currentSegmentIds = Array.isArray((data as any).segmentIds) 
+    ? [...(data as any).segmentIds] 
+    : [];
 
-  // FIXED TAREA 3: Corregido el bug de selección múltiple
   const toggleSegment = (id: string) => {
     let nextArr: string[];
     if (currentSegmentIds.includes(id)) {
