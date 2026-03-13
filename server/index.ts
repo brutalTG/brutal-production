@@ -2094,18 +2094,21 @@ app.post("/bot/webhook", async (c) => {
             const { data: activeSeason } = await db().from("seasons").select("season_id").eq("is_active", true).limit(1);
             const seasonId = activeSeason?.[0]?.season_id || null;
 
-            // GUARDAR RESPUESTA (con nulls explícitos)
+            // GUARDAR RESPUESTA
             const { error: respErr } = await db().from("responses").insert({
               node_id: node.node_id, 
               anonymous_id: anonymous_id || null, 
-              session_id: null, // Null explícito porque no viene de un Drop
+              session_id: null, 
+              bot_question_id: botQuestionId, // Aprovechamos que tenés esta columna
               question_id: bq.question_id, 
               drop_id: bq.linked_drop_id || null,
+              position_in_drop: null,
               question_type: "choice", 
               choice: chosenOption,
               choice_index: choiceIndex, 
               raw_response: { callback_data: data, bot_question_id: botQuestionId },
               source: "bot", 
+              latency_ms: 0, // <--- 🚨 EL FIX: Le pasamos 0 porque es Telegram
               reward_type: rewardTickets > 0 ? "golden_ticket" : null,
               reward_value: rewardTickets, 
               reward_granted: true,
