@@ -1835,10 +1835,11 @@ app.post("/bot/questions", requirePanel, async (c) => {
   const questionId = crypto.randomUUID();
   const botQuestionId = crypto.randomUUID();
 
-  // 1. Forzamos la creación en questions con UUID explícito
+  // 1. La creamos como "choice" para que la DB la acepte sin problemas
+  // y para que la analítica la entienda como una carta normal.
   const { error: qErr } = await db().from("questions").insert({
     question_id: questionId,
-    type: "bot_question",
+    type: "choice", // <--- EL FIX ESTÁ ACÁ
     label: text,
     config: { options, imageUrl },
     reward_tickets: rewardTickets || 0,
@@ -1846,24 +1847,25 @@ app.post("/bot/questions", requirePanel, async (c) => {
   });
 
   if (qErr) {
-    console.error("[BOT] Error DB questions:", qErr);
-    return c.json({ error: `Error base (questions): ${qErr.message}` }, 500);
+    console.error("[BOT] Error al crear en 'questions':", qErr);
+    return c.json({ error: `Error DB questions: ${qErr.message}` }, 500);
   }
 
-  // 2. Creamos en bot_questions
+  // 2. Armamos el "sobre" para enviarla por Telegram
   const { error: bqErr } = await db().from("bot_questions").insert({
     bot_question_id: botQuestionId,
     question_id: questionId,
     message_config: { text, options, imageUrl, rewardTickets },
     total_sent: 0,
     total_answered: 0,
-    bot_name: "BRUTAL", // Por si la DB exige que no sea nulo
+    bot_name: "BRUTAL",
   });
 
   if (bqErr) {
-    console.error("[BOT] Error DB bot_questions:", bqErr);
+    console.error("[BOT] Error al crear en 'bot_questions':", bqErr);
+    // Limpiamos la basura si falló la segunda parte
     await db().from("questions").delete().eq("question_id", questionId);
-    return c.json({ error: `Error base (bot_questions): ${bqErr.message}` }, 500);
+    return c.json({ error: `Error DB bot_questions: ${bqErr.message}` }, 500);
   }
 
   return c.json({ ok: true, id: botQuestionId });
